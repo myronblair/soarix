@@ -1,0 +1,6 @@
+[terminal]
+vt = 1
+
+[default_session]
+command = "tuigreet --time --greeting 'Welcome to Soarix' --cmd niri-session"
+user = "greetd"
