@@ -16,13 +16,6 @@ jobs:
 
       - name: Build installer ISO
         run: |
-          mkdir -p /opt/soarix-out && rm -rf /opt/soarix-out/*
-          sudo podman run --rm --privileged --pull=newer \
-            --security-opt label=type:unconfined_t \
-            -v "$PWD/disk_config/iso.toml:/config.toml:ro" \
-            -v /opt/soarix-out:/output \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
-            quay.io/centos-bootc/bootc-image-builder:latest \
-            --type anaconda-iso --rootfs ext4 \
-            localhost/soarix:latest
-          ls -lh /opt/soarix-out/bootiso/ | tee /opt/soarix-out/SIZE.txt
+          mkdir -p /opt/soarix-out && sudo rm -rf /opt/soarix-out/*
+          sudo image-builder build             --bootc-ref localhost/soarix:latest --bootc-default-fs ext4             --output-dir /opt/soarix-out bootc-generic-iso
+          find /opt/soarix-out -name '*.iso' -exec ls -lh {} \; | tee /opt/soarix-out/SIZE.txt
