@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f9ff"/><stop offset=".6" stop-color="#dcebff"/><stop offset="1" stop-color="#bcd8fb"/></linearGradient>
+    <linearGradient id="wing" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#1fbfa0" stop-opacity="0"/><stop offset=".45" stop-color="#1fbfa0" stop-opacity=".5"/><stop offset="1" stop-color="#3b97f0" stop-opacity=".9"/></linearGradient>
+    <radialGradient id="sun" cx="0.83" cy="0.27" r="0.5"><stop offset="0" stop-color="#ffc766" stop-opacity=".55"/><stop offset="1" stop-color="#ffc766" stop-opacity="0"/></radialGradient>
+    <radialGradient id="core"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#ffb84d"/></radialGradient>
+    <path id="swoop" d="M-140 1060 C 380 800 1020 420 1600 280 L 1586 336 C 1020 480 420 880 -140 1060 Z"/>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#sun)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="#3b97f0" fill-opacity=".16" transform="rotate(7 -140 1060)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="url(#wing)" fill-opacity=".6" transform="rotate(3.5 -140 1060)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="url(#wing)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="#ffffff" fill-opacity=".45" transform="translate(-140 1060) rotate(-4) scale(.92) translate(140 -1060)"/>
+  <circle cx="1600" cy="284" r="150" fill="#ffb84d" fill-opacity=".16"/>
+  <path d="M1600 232 L1609 275 L1652 284 L1609 293 L1600 336 L1591 293 L1548 284 L1591 275 Z" fill="#ffab2e"/>
+  <circle cx="1600" cy="284" r="14" fill="url(#core)"/>
+</svg>
