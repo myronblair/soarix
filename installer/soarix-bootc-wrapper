@@ -1,0 +1,20 @@
+#!/bin/bash
+# Soarix: Anaconda empties the new disk right before it runs bootc, and the installer's own
+# temporary space (RAM) is far too small for the OS image. So just before bootc starts,
+# point its temporary area at the new disk, and clean up afterwards.
+REAL=/usr/libexec/soarix/bootc.real
+if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
+  target="${@: -1}"
+  stage="$target/.soarix-staging"
+  mkdir -p "$stage" /var/tmp
+  mount --bind "$stage" /var/tmp
+  echo "soarix: staging on $stage" >&2
+  "$REAL" "$@"; rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "soarix: bootc failed (rc=$rc); staging was on the target disk" >&2
+  fi
+  umount /var/tmp 2>/dev/null || umount -l /var/tmp 2>/dev/null
+  rm -rf "$stage"
+  exit $rc
+fi
+exec "$REAL" "$@"

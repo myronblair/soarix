@@ -38,6 +38,11 @@ RUN mkdir -p /boot/efi && cp -ra /usr/lib/efi/*/*/EFI /boot/efi
 # Installer boot menu: command line is the default; the second entry also fetches the desktop
 COPY installer/iso.yaml /usr/lib/image-builder/bootc/iso.yaml
 
+# Stage the OS image on the new disk (not in RAM) at the moment bootc runs
+COPY installer/soarix-bootc-wrapper /usr/libexec/soarix/bootc-wrapper
+RUN mv /usr/bin/bootc /usr/libexec/soarix/bootc.real && \
+    install -m 755 /usr/libexec/soarix/bootc-wrapper /usr/bin/bootc
+
 # What the installer installs (the Soarix core image is embedded in the ISO)
 COPY installer/interactive-defaults.ks /usr/share/anaconda/interactive-defaults.ks
 

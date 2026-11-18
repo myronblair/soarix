@@ -2,9 +2,9 @@ bootc --source-imgref containers-storage:localhost/soarix:latest --target-imgref
 
 # The installer's own working space lives in RAM and is far too small for the OS image.
 # Once the disk is partitioned and mounted, point the installer's temporary area at the new disk.
-%pre-install --erroronfail --log=/tmp/soarix-pre-install.log
-mkdir -p /mnt/sysroot/.soarix-staging
-mount --bind /mnt/sysroot/.soarix-staging /var/tmp
+%pre-install --log=/tmp/soarix-pre-install.log
+# (staging is now handled by the bootc wrapper at the moment bootc starts)
+true
 %end
 
 # "Install Soarix with desktop" was chosen in the boot menu: mark the new system so that it
