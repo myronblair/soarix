@@ -1,0 +1,6 @@
+[Unit]
+Description=Update Soarix apps and runtimes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/soarix-update apps

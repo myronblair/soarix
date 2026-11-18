@@ -1,0 +1,12 @@
+# Soarix Server: the Soarix base plus a complete traditional hosting stack.
+# Everything is installed but switched off; turn pieces on with `soarix-server enable <group>`.
+ARG BASE=localhost/soarix:latest
+FROM scratch AS ctx
+COPY server /
+
+FROM ${BASE}
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/server.sh
+RUN bootc container lint

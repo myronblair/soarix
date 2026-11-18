@@ -1,0 +1,8 @@
+[Unit]
+Description=Soarix OS update (downloads quietly, applies at next restart)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/soarix-update auto

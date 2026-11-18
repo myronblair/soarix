@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""soarix-update - update the Soarix operating system and your apps.
+
+  soarix-update status          what you run now, and whether a newer Soarix exists
+  soarix-update check           look for updates (changes nothing)
+  soarix-update os              download the newest Soarix (applies at next restart)
+  soarix-update os --restart    ...and restart now
+  soarix-update rollback        go back to the previous Soarix at next restart
+  soarix-update apps            update apps (Flatpak) and your runtimes (node, java, php ...)
+  soarix-update all             everything above (without restarting)
+  soarix-update auto            what the daily timer runs: stage the OS update quietly
+
+The OS is image based: an update is a complete, tested image that is swapped in at
+restart. If anything is wrong after an update, 'rollback' returns to the old one.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import urllib.request
+
+CONF = "/etc/soarix/update.conf"
+DEFAULTS = {
+    "CHANNEL": "stable",
+    "MANIFEST_URL": "https://raw.githubusercontent.com/myronblair/soarix-updates/main/{channel}.json",
+}
+
+
+def conf():
+    c = dict(DEFAULTS)
+    if os.path.isfile(CONF):
+        for ln in open(CONF):
+            ln = ln.strip()
+            if ln and not ln.startswith("#") and "=" in ln:
+                k, v = ln.split("=", 1)
+                c[k.strip()] = v.strip().strip('"')
+    return c
+
+
+def run(cmd, check=False):
+    return subprocess.run(cmd, check=check, capture_output=False)
+
+
+def out(cmd):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        return 127, "", "%s not found" % cmd[0]
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def privileged(cmd):
+    return cmd if os.geteuid() == 0 else ["pkexec"] + cmd if shutil.which("pkexec") else ["sudo"] + cmd
+
+
+def current():
+    rc, o, _ = out(["bootc", "status", "--json"])
+    if rc != 0:
+        return {}
+    try:
+        s = json.loads(o)
+    except ValueError:
+        return {}
+    booted = (s.get("status", {}).get("booted") or {}).get("image") or {}
+    staged = (s.get("status", {}).get("staged") or {}).get("image") or {}
+    return {"version": booted.get("version"), "image": (booted.get("image") or {}).get("image"),
+            "digest": booted.get("imageDigest"), "staged_version": staged.get("version") or ("pending" if s.get("status", {}).get("staged") else None)}
+
+
+def manifest():
+    c = conf()
+    url = c["MANIFEST_URL"].format(channel=c["CHANNEL"])
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "soarix-update"}), timeout=20) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:  # offline, or channel not published yet
+        return {"error": str(e)}
+
+
+def newer(a, b):
+    def k(v):
+        return tuple(int(x) for x in (v or "0").split(".") if x.isdigit())
+    return k(a) > k(b)
+
+
+def notify(msg):
+    if shutil.which("notify-send"):
+        run(["notify-send", "-a", "Soarix", "Soarix update", msg])
+
+
+def cmd_status():
+    cur, m = current(), manifest()
+    print("Soarix on this computer : %s" % (cur.get("version") or "unknown"))
+    if cur.get("staged_version"):
+        print("Waiting for restart      : %s (already downloaded)" % cur["staged_version"])
+    if "error" in m:
+        print("Latest available         : could not check (%s)" % m["error"])
+    else:
+        print("Latest available         : %s (%s channel)" % (m.get("version"), m.get("channel", conf()["CHANNEL"])))
+        if newer(m.get("version"), cur.get("version")):
+            print("An update is available. Run: soarix-update os")
+            for n in m.get("notes", [])[:8]:
+                print("   -", n)
+        else:
+            print("You are up to date.")
+
+
+def cmd_check():
+    cur, m = current(), manifest()
+    if "error" in m:
+        print("Could not check for updates:", m["error"])
+        return 1
+    if newer(m.get("version"), cur.get("version")):
+        print("Update available: Soarix %s" % m["version"])
+        return 0
+    print("Soarix is up to date.")
+    return 0
+
+
+def cmd_os(restart=False):
+    print("Downloading the newest Soarix ...")
+    r = run(privileged(["bootc", "upgrade"]))
+    if r.returncode != 0:
+        print("The OS update did not complete.")
+        return r.returncode
+    cur = current()
+    if cur.get("staged_version"):
+        print("Update downloaded. It will start after the next restart.")
+        notify("A Soarix update is ready. It will install when you restart.")
+        if restart:
+            run(["systemctl", "reboot"])
+    else:
+        print("Already on the newest Soarix.")
+    return 0
+
+
+def cmd_rollback():
+    r = run(privileged(["bootc", "rollback"]))
+    if r.returncode == 0:
+        print("The previous Soarix will start at the next restart.")
+    return r.returncode
+
+
+def cmd_apps():
+    rc = 0
+    if shutil.which("flatpak"):
+        print("== Apps (Flatpak) ==")
+        rc |= run(["flatpak", "update", "-y", "--noninteractive"]).returncode
+    if shutil.which("soarix-runtime"):
+        print("== Runtimes ==")
+        rc |= run(["soarix-runtime", "update"]).returncode
+    return rc
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    c = a[0]
+    if c == "status":
+        cmd_status()
+    elif c == "check":
+        return cmd_check()
+    elif c == "os":
+        return cmd_os("--restart" in a)
+    elif c == "rollback":
+        return cmd_rollback()
+    elif c == "apps":
+        return cmd_apps()
+    elif c == "all":
+        cmd_os()
+        return cmd_apps()
+    elif c == "auto":
+        cur, m = current(), manifest()
+        if "error" not in m and newer(m.get("version"), cur.get("version")):
+            return cmd_os()
+    else:
+        print(__doc__)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,57 @@
+# Soarix installer environment: the live system the installer ISO boots into.
+# Built from Fedora's bootc image plus Anaconda; the Soarix image itself is the payload.
+FROM quay.io/fedora/fedora-bootc:44
+
+# Neutral branding so the installer says Soarix, not Fedora
+RUN dnf5 -y install --allowerasing generic-release generic-logos
+
+RUN dnf5 -y install \
+    anaconda anaconda-install-img-deps anaconda-dracut \
+    dracut-config-generic dracut-network dracut-live \
+    net-tools grub2-efi-x64-cdboot grub2-common grub2-pc-modules \
+    plymouth default-fonts-core-sans default-fonts-other-sans google-noto-sans-cjk-fonts \
+    xorriso squashfs-tools isomd5sum jq \
+ && dnf5 clean all
+
+RUN printf '%s\n' 'NAME="Soarix"' 'PRETTY_NAME="Soarix 0.1"' 'ID=soarix' 'ID_LIKE="fedora"' \
+    'VERSION="0.1"' 'VERSION_ID="0.1"' 'VARIANT_ID=strip' 'HOME_URL="https://getsoarix.com"' \
+    > /usr/lib/os-release && ln -sf ../usr/lib/os-release /etc/os-release
+
+# Boot files the ISO builder expects
+RUN mkdir -p /boot/efi && cp -ra /usr/lib/efi/*/*/EFI /boot/efi
+
+# ISO menu
+RUN mkdir -p /usr/lib/image-builder/bootc && printf '%s\n' \
+    'label: "Soarix-Installer"' \
+    'grub2:' \
+    '  timeout: 30' \
+    '  entries:' \
+    '    - name: "Install Soarix 0.1"' \
+    '      linux: ${kernelpath} ${root} inst.graphical' \
+    '      initrd: ${initrdpath}' \
+    > /usr/lib/image-builder/bootc/iso.yaml
+
+# What the installer installs (the Soarix image is embedded in the ISO)
+RUN printf '%s\n' 'bootc --source-imgref containers-storage:localhost/soarix:latest --target-imgref ghcr.io/myronblair/soarix:latest' \
+    > /usr/share/anaconda/interactive-defaults.ks
+
+# Minimum plumbing normally done by lorax to make Anaconda run
+RUN echo "install:x:0:0:root:/root:/usr/libexec/anaconda/run-anaconda" >> /etc/passwd && \
+    echo "install::14438:0:99999:7:::" >> /etc/shadow && \
+    passwd -d root
+RUN mv /usr/share/anaconda/list-harddrives-stub /usr/bin/list-harddrives && \
+    mv /etc/yum.repos.d /etc/anaconda.repos.d && \
+    ln -s /lib/systemd/system/anaconda.target /etc/systemd/system/default.target && \
+    rm -v /usr/lib/systemd/system-generators/systemd-gpt-auto-generator
+RUN ln -sf /usr/lib/systemd/system/anaconda-shell@.service /usr/lib/systemd/system/autovt@.service
+RUN mkdir -p /usr/lib/systemd/logind.conf.d && printf '[Login]\nReserveVT=2\n' > /usr/lib/systemd/logind.conf.d/anaconda-shell.conf
+RUN mkdir -p /etc/systemd/user/pipewire.service.d /etc/systemd/user/pipewire.socket.d && \
+    printf '[Unit]\nConditionUser=\n' > /etc/systemd/user/pipewire.service.d/allowroot.conf && \
+    printf '[Unit]\nConditionUser=\n' > /etc/systemd/user/pipewire.socket.d/allowroot.conf
+
+# Rebuild the boot-time image with live-disc and Anaconda support (this was the missing piece)
+RUN mkdir -p "$(realpath /root)" && \
+    kernel=$(kernel-install list --json pretty | jq -r '.[] | select(.has_kernel == true) | .version') && \
+    DRACUT_NO_XATTR=1 dracut --force -v --zstd --reproducible --no-hostonly \
+        --add "anaconda dmsquash-live" \
+        "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"

@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""soarix-runtime - install and remove programming runtimes (per user, no root needed).
+
+  soarix-runtime available            what can be installed
+  soarix-runtime list                 what is installed
+  soarix-runtime install node         (or node@22, java@21, php@8.4, lucee)
+  soarix-runtime remove  node@22
+  soarix-runtime use     java@17      make a version the default
+  soarix-runtime update  [name]       update to the newest release of the same line
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import sys
+import tarfile
+import tempfile
+import urllib.request
+import zipfile
+
+HOME = os.path.expanduser("~")
+ROOT = os.environ.get("SOARIX_RUNTIME_HOME", os.path.join(HOME, ".local/share/soarix/runtimes"))
+BIN = os.path.join(os.path.dirname(ROOT), "bin")
+ALIASES = {"js": "node", "javascript": "node", "jscript": "node", "nodejs": "node",
+           "jdk": "java", "cf": "lucee", "cfml": "lucee", "coldfusion": "lucee"}
+UA = {"User-Agent": "soarix-runtime"}
+
+
+def fetch(url):
+    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:
+        return r.read().decode()
+
+
+def download(url, dest):
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+        total = int(r.headers.get("Content-Length") or 0)
+        got = 0
+        while True:
+            b = r.read(1 << 20)
+            if not b:
+                break
+            f.write(b)
+            got += len(b)
+            if total:
+                print("\r  downloading %d%% (%d MB)" % (got * 100 // total, got >> 20), end="", flush=True)
+    print()
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def vkey(s):
+    return tuple(int(x) for x in s.split("."))
+
+
+# ---- catalog: each runtime turns a version request into a download description ----
+def r_node(req):
+    idx = json.loads(fetch("https://nodejs.org/dist/index.json"))
+    if req and req != "latest":
+        m = [x for x in idx if x["version"].lstrip("v") == req or x["version"].lstrip("v").startswith(req + ".")]
+    else:
+        m = [x for x in idx if x["lts"]]
+    if not m:
+        raise SystemExit("node: no release matches '%s'" % req)
+    v = m[0]["version"]
+    name = "node-%s-linux-x64.tar.xz" % v
+    sums = fetch("https://nodejs.org/dist/%s/SHASUMS256.txt" % v)
+    sha = next((ln.split()[0] for ln in sums.splitlines() if ln.endswith(name)), None)
+    return dict(version=v.lstrip("v"), line=v.lstrip("v").split(".")[0],
+                url="https://nodejs.org/dist/%s/%s" % (v, name), sha256=sha,
+                bins=["bin/node", "bin/npm", "bin/npx", "bin/corepack"])
+
+
+def r_java(req):
+    feat = (req or "21").split(".")[0]
+    if feat == "latest":
+        feat = str(json.loads(fetch("https://api.adoptium.net/v3/info/available_releases"))["most_recent_lts"])
+    a = json.loads(fetch("https://api.adoptium.net/v3/assets/latest/%s/hotspot?architecture=x64&os=linux&image_type=jdk" % feat))
+    if not a:
+        raise SystemExit("java: no JDK %s available" % feat)
+    pkg = a[0]["binary"]["package"]
+    return dict(version=feat, line=feat, release=a[0]["release_name"], url=pkg["link"], sha256=pkg.get("checksum"),
+                bins=["bin/java", "bin/javac", "bin/jar", "bin/jshell"], env={"JAVA_HOME": "."})
+
+
+def r_php(req):
+    lst = json.loads(fetch("https://dl.static-php.dev/static-php-cli/common/?format=json"))
+    pat = re.compile(r"php-(\d+\.\d+\.\d+)-cli-linux-x86_64\.tar\.gz$")
+    vers = sorted({pat.match(x["name"]).group(1) for x in lst if pat.match(x["name"])}, key=vkey)
+    if req and req != "latest":
+        vers = [v for v in vers if v == req or v.startswith(req + ".")]
+    if not vers:
+        raise SystemExit("php: no release matches '%s'" % req)
+    v = vers[-1]
+    return dict(version=v, line=".".join(v.split(".")[:2]), sha256=None, bins=["php"],
+                url="https://dl.static-php.dev/static-php-cli/common/php-%s-cli-linux-x86_64.tar.gz" % v)
+
+
+def r_lucee(req):
+    lst = json.loads(fetch("https://release.lucee.org/rest/update/provider/list"))
+    vers = [x["version"] for x in lst if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", x["version"])]
+    if req and req != "latest":
+        vers = [v for v in vers if v == req or v.startswith(req + ".")]
+    if not vers:
+        raise SystemExit("lucee: no release matches '%s'" % req)
+    v = vers[-1]
+    return dict(version=v, line=".".join(v.split(".")[:2]), url="https://cdn.lucee.org/lucee-express-%s.zip" % v,
+                sha256=None, bins=["start.sh", "stop.sh"], rename={"start.sh": "lucee-start", "stop.sh": "lucee-stop"},
+                note="Lucee (open-source CFML, runs ColdFusion code) needs Java: soarix-runtime install java")
+
+
+CATALOG = {
+    "node": (r_node, "Node.js - JavaScript runtime (LTS) with npm"),
+    "java": (r_java, "Java JDK (Eclipse Temurin) - java@21, java@17, java@25 ..."),
+    "php": (r_php, "PHP command line - php@8.4 style versions"),
+    "lucee": (r_lucee, "Lucee CFML engine - runs ColdFusion (CFML) code"),
+}
+
+
+def norm(spec):
+    name, _, ver = spec.partition("@")
+    name = ALIASES.get(name.lower(), name.lower())
+    if name not in CATALOG:
+        raise SystemExit("unknown runtime '%s'. Try: soarix-runtime available" % name)
+    return name, ver
+
+
+def inst_dir(name, version):
+    return os.path.join(ROOT, name, version)
+
+
+def installed():
+    out = []
+    if os.path.isdir(ROOT):
+        for n in sorted(os.listdir(ROOT)):
+            for v in sorted(os.listdir(os.path.join(ROOT, n))):
+                if os.path.isfile(os.path.join(ROOT, n, v, ".soarix.json")):
+                    out.append((n, v))
+    return out
+
+
+def meta(name, version):
+    with open(os.path.join(inst_dir(name, version), ".soarix.json")) as f:
+        return json.load(f)
+
+
+def default_of(name):
+    p = os.path.join(ROOT, name, ".default")
+    return open(p).read().strip() if os.path.isfile(p) else None
+
+
+def shim_path(m, b):
+    return os.path.join(BIN, m.get("rename", {}).get(b, os.path.basename(b)))
+
+
+def link_default(name, version):
+    d = inst_dir(name, version)
+    m = meta(name, version)
+    os.makedirs(BIN, exist_ok=True)
+    for b in m["bins"]:
+        src = os.path.join(d, b)
+        dst = shim_path(m, b)
+        if os.path.lexists(dst):
+            os.remove(dst)
+        if m.get("env"):
+            lines = ["#!/bin/sh"]
+            for k, v in m["env"].items():
+                lines.append('export %s="%s"' % (k, os.path.normpath(os.path.join(d, v))))
+            lines.append('exec "%s" "$@"' % src)
+            with open(dst, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            os.chmod(dst, 0o755)
+        else:
+            os.symlink(src, dst)
+    with open(os.path.join(ROOT, name, ".default"), "w") as f:
+        f.write(version)
+
+
+def unlink_default(name):
+    v = default_of(name)
+    if v:
+        try:
+            m = meta(name, v)
+            for b in m["bins"]:
+                dst = shim_path(m, b)
+                if os.path.lexists(dst):
+                    os.remove(dst)
+        except FileNotFoundError:
+            pass
+        os.remove(os.path.join(ROOT, name, ".default"))
+
+
+def extract(archive, dest):
+    tmp = tempfile.mkdtemp(dir=os.path.dirname(dest))
+    if archive.endswith(".zip"):
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(tmp)
+    else:
+        with tarfile.open(archive) as t:
+            t.extractall(tmp, filter="data")
+    top = os.listdir(tmp)
+    src = os.path.join(tmp, top[0]) if len(top) == 1 and os.path.isdir(os.path.join(tmp, top[0])) else tmp
+    shutil.move(src, dest)
+    shutil.rmtree(tmp, ignore_errors=True)
+    for dp, _, fs in os.walk(dest):  # zip files lose their executable bit
+        for f in fs:
+            if f.endswith(".sh"):
+                p = os.path.join(dp, f)
+                os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR)
+
+
+def do_install(spec):
+    name, req = norm(spec)
+    info = CATALOG[name][0](req)
+    d = inst_dir(name, info["version"])
+    if os.path.isfile(os.path.join(d, ".soarix.json")):
+        print("%s %s is already installed" % (name, info["version"]))
+        return info["version"]
+    print("Installing %s %s ..." % (name, info["version"]))
+    os.makedirs(os.path.dirname(d), exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(d)) as t:
+        arch = os.path.join(t, "pkg" + (".zip" if info["url"].endswith(".zip") else ".tar"))
+        download(info["url"], arch)
+        if info.get("sha256"):
+            if sha256(arch).lower() != info["sha256"].lower():
+                raise SystemExit("checksum mismatch - download discarded")
+            print("  checksum verified")
+        extract(arch, d)
+    rec = {k: v for k, v in info.items() if k not in ("url", "sha256")}
+    rec["name"] = name
+    with open(os.path.join(d, ".soarix.json"), "w") as f:
+        json.dump(rec, f)
+    if info.get("note"):
+        print("  note:", info["note"])
+    if not default_of(name):
+        link_default(name, info["version"])
+        print("  set as default %s" % name)
+    print("Installed %s %s" % (name, info["version"]))
+    return info["version"]
+
+
+def do_remove(spec):
+    name, ver = norm(spec)
+    have = [v for n, v in installed() if n == name and (not ver or v == ver or v.startswith(ver + "."))]
+    if not have:
+        raise SystemExit("%s%s is not installed" % (name, "@" + ver if ver else ""))
+    default = default_of(name)
+    for v in have:
+        if v == default:
+            unlink_default(name)
+        shutil.rmtree(inst_dir(name, v))
+        print("Removed %s %s" % (name, v))
+    left = [v for n, v in installed() if n == name]
+    if not left:
+        shutil.rmtree(os.path.join(ROOT, name), ignore_errors=True)
+    elif default in have:
+        link_default(name, left[-1])
+        print("  default is now %s %s" % (name, left[-1]))
+
+
+def do_use(spec):
+    name, ver = norm(spec)
+    have = [v for n, v in installed() if n == name and (v == ver or v.startswith(ver + "."))]
+    if not have:
+        raise SystemExit("%s is not installed - install it first" % spec)
+    unlink_default(name)
+    link_default(name, have[-1])
+    print("%s %s is now the default" % (name, have[-1]))
+
+
+def do_update(spec=None):
+    names = [norm(spec)[0]] if spec else sorted({n for n, _ in installed()})
+    for name in names:
+        for n, v in [x for x in installed() if x[0] == name]:
+            m = meta(n, v)
+            try:
+                info = CATALOG[n][0](m["line"])
+            except SystemExit as e:
+                print("%s %s: %s" % (n, v, e))
+                continue
+            newer = info["version"] != v or (info.get("release") and info["release"] != m.get("release"))
+            if not newer:
+                print("%s %s: up to date" % (n, v))
+                continue
+            was_default = default_of(n) == v
+            if info["version"] == v:  # same label (java feature version): replace in place
+                if was_default:
+                    unlink_default(n)
+                shutil.rmtree(inst_dir(n, v))
+            nv = do_install("%s@%s" % (n, info["version"]))
+            if was_default:
+                do_use("%s@%s" % (n, nv))
+            if info["version"] != v:
+                do_remove("%s@%s" % (n, v))
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return
+    c, rest = a[0], a[1:]
+    if c == "available":
+        for n, (_, d) in CATALOG.items():
+            print("  %-8s %s" % (n, d))
+        print("  (aliases: javascript / js / jscript -> node, jdk -> java, cfml / coldfusion -> lucee)")
+    elif c == "list":
+        inst = installed()
+        if not inst:
+            print("nothing installed yet - try: soarix-runtime install node")
+        for n, v in inst:
+            print("  %-8s %s%s" % (n, v, " (default)" if default_of(n) == v else ""))
+    elif c == "install" and rest:
+        for s in rest:
+            do_install(s)
+    elif c in ("remove", "uninstall") and rest:
+        for s in rest:
+            do_remove(s)
+    elif c == "use" and rest:
+        do_use(rest[0])
+    elif c == "update":
+        do_update(rest[0] if rest else None)
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

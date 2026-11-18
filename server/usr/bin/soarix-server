@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""soarix-server - turn the hosting stack's pieces on and off.
+
+  soarix-server list                 every group and whether it is running
+  soarix-server enable web db        start now and at every boot
+  soarix-server disable ftp
+  soarix-server status
+
+Groups: web  dns  ns  db  ftp  mail  cache  proxy  share  java  security
+Open the right firewall ports with:  soarix-server firewall <group>
+"""
+import os
+import shutil
+import subprocess
+import sys
+
+# group: (description, units, firewall services)
+GROUPS = {
+    "web": ("Web server (nginx) with PHP", ["nginx.service", "php-fpm.service"], ["http", "https"]),
+    "apache": ("Web server (Apache httpd) - use instead of nginx", ["httpd.service", "php-fpm.service"], ["http", "https"]),
+    "dns": ("Caching DNS resolver (unbound)", ["unbound.service"], ["dns"]),
+    "ns": ("Authoritative name server (BIND)", ["named.service"], ["dns"]),
+    "db": ("Databases (MariaDB and PostgreSQL)", ["mariadb.service", "postgresql.service"], []),
+    "ftp": ("FTP server (vsftpd)", ["vsftpd.service"], ["ftp"]),
+    "mail": ("Mail server (Postfix, Dovecot, DKIM)", ["postfix.service", "dovecot.service", "opendkim.service"],
+             ["smtp", "smtps", "smtp-submission", "imap", "imaps", "pop3s"]),
+    "cache": ("Caches (Valkey/Redis-compatible, Memcached)", ["valkey.service", "memcached.service"], []),
+    "proxy": ("Load balancer / accelerator (HAProxy, Varnish)", ["haproxy.service", "varnish.service"], ["http", "https"]),
+    "share": ("File sharing (Samba, NFS)", ["smb.service", "nfs-server.service"], ["samba", "nfs"]),
+    "java": ("Java web apps (Tomcat)", ["tomcat.service"], []),
+    "security": ("Brute-force protection (fail2ban)", ["fail2ban.service"], []),
+}
+
+
+def sh(cmd, quiet=False):
+    r = subprocess.run(cmd, capture_output=quiet, text=True)
+    return r
+
+
+def need_root():
+    if os.geteuid() != 0:
+        os.execvp("sudo", ["sudo"] + sys.argv) if shutil.which("sudo") else sys.exit("run as root")
+
+
+def state(unit):
+    r = sh(["systemctl", "is-active", unit], quiet=True)
+    return r.stdout.strip() or "inactive"
+
+
+def listing():
+    for g, (d, units, _) in GROUPS.items():
+        st = ["%s:%s" % (u.replace(".service", ""), state(u)) for u in units]
+        print("  %-9s %-52s %s" % (g, d, " ".join(st)))
+
+
+def pick(names):
+    bad = [n for n in names if n not in GROUPS]
+    if bad or not names:
+        sys.exit("unknown group(s): %s  (try: soarix-server list)" % " ".join(bad or ["(none given)"]))
+    return names
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+    elif a[0] in ("list", "status"):
+        listing()
+    elif a[0] == "enable":
+        need_root()
+        for g in pick(a[1:]):
+            for u in GROUPS[g][1]:
+                if sh(["systemctl", "enable", "--now", u]).returncode != 0:
+                    print("  could not start %s (it may need first-time setup, e.g. a database initialisation)" % u)
+            print("enabled", g)
+    elif a[0] == "disable":
+        need_root()
+        for g in pick(a[1:]):
+            for u in GROUPS[g][1]:
+                sh(["systemctl", "disable", "--now", u])
+            print("disabled", g)
+    elif a[0] == "firewall":
+        need_root()
+        for g in pick(a[1:]):
+            for s in GROUPS[g][2]:
+                sh(["firewall-cmd", "--permanent", "--add-service=" + s])
+            print("firewall opened for", g)
+        sh(["firewall-cmd", "--reload"])
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

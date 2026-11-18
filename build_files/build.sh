@@ -19,7 +19,14 @@ dnf5 -y install \
     NetworkManager NetworkManager-wifi \
     mesa-dri-drivers \
     nautilus firefox \
-    flatpak distrobox \n    virtualbox-guest-additions qemu-guest-agent spice-vdagent
+    flatpak distrobox \
+    virtualbox-guest-additions qemu-guest-agent spice-vdagent \
+    python3 tar xz unzip libatomic libnotify
+
+### Soarix tools: language runtimes (soarix-runtime) and OS/app updater (soarix-update)
+chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update
+systemctl enable soarix-update.timer
+systemctl --global enable soarix-update-apps.timer
 
 ### Login screen: greetd + tuigreet launching niri
 systemctl enable greetd.service

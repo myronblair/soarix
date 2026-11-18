@@ -1,0 +1,10 @@
+[Unit]
+Description=Update Soarix apps and runtimes weekly
+
+[Timer]
+OnCalendar=weekly
+RandomizedDelaySec=1d
+Persistent=true
+
+[Install]
+WantedBy=timers.target
