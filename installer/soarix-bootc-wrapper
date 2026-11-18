@@ -7,6 +7,8 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
   target="${@: -1}"
   stage="$target/.soarix-staging"
   mkdir -p "$stage" /var/tmp
+  # bootc insists the target root holds only mount points, so make the staging folder one
+  mount --bind "$stage" "$stage"
   mount --bind "$stage" /var/tmp
   echo "soarix: staging on $stage" >&2
   "$REAL" "$@"; rc=$?
@@ -14,6 +16,7 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
     echo "soarix: bootc failed (rc=$rc); staging was on the target disk" >&2
   fi
   umount /var/tmp 2>/dev/null || umount -l /var/tmp 2>/dev/null
+  umount "$stage" 2>/dev/null || umount -l "$stage" 2>/dev/null
   rm -rf "$stage"
   exit $rc
 fi
