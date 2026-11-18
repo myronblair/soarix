@@ -71,8 +71,12 @@ def current():
 def manifest():
     c = conf()
     url = c["MANIFEST_URL"].format(channel=c["CHANNEL"])
+    headers = {"User-Agent": "soarix-update"}
+    tok = "/etc/soarix/update-token"  # only needed while the channel is private
+    if os.path.isfile(tok):
+        headers["Authorization"] = "token " + open(tok).read().strip()
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "soarix-update"}), timeout=20) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
             return json.loads(r.read().decode())
     except Exception as e:  # offline, or channel not published yet
         return {"error": str(e)}
