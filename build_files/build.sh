@@ -17,9 +17,41 @@ dnf5 -y install \
     podman distrobox flatpak git curl wget rsync tmux vim-minimal nano htop bash-completion \
     cockpit cockpit-podman
 
+### Hardware support: firmware, kernel extras, firmware updates
+dnf5 -y install \
+    linux-firmware kernel-modules-extra fwupd \
+    alsa-sof-firmware alsa-firmware alsa-utils \
+    iw wireless-regdb usb_modeswitch bolt \
+    usbutils pciutils lshw lm_sensors smartmontools nvme-cli \
+    power-profiles-daemon upower thermald zram-generator rtkit \
+    fprintd pcsc-lite pcsc-lite-ccid
+
+### Bluetooth
+dnf5 -y install bluez bluez-tools
+
+### Storage and filesystems (read and write other systems' disks and USB sticks)
+dnf5 -y install cryptsetup ntfs-3g exfatprogs dosfstools btrfs-progs xfsprogs
+
+### Networking, discovery and sharing: Wi-Fi/VPN, local-network discovery, printing, scanning, file sharing
+dnf5 -y install \
+    NetworkManager-openvpn wireguard-tools \
+    avahi nss-mdns \
+    cups cups-filters sane-backends sane-backends-drivers-scanners \
+    samba-client \
+    firewalld chrony openssh-server \
+    mtr traceroute nmap-ncat bind-utils
+
 ### Soarix tools: language runtimes, OS/app updater, desktop switch
-chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/libexec/soarix-firstboot-desktop
+chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/bin/soarix-hardware /usr/libexec/soarix-firstboot-desktop
 systemctl enable soarix-update.timer soarix-firstboot-desktop.service cockpit.socket
+
+# Hardware and everyday services on by default. Sharing and remote access stay OFF until the owner turns them on
+# (printer sharing is off in CUPS by default; SSH and file-sharing servers are not enabled).
+systemctl enable bluetooth.service power-profiles-daemon.service upower.service avahi-daemon.service \
+    cups.socket chronyd.service firewalld.service fstrim.timer fwupd-refresh.timer 2>/dev/null || true
+# Compressed RAM swap so small-memory machines stay responsive
+mkdir -p /usr/lib/systemd/zram-generator.conf.d
+printf '[zram0]\nzram-size = min(ram / 2, 4096)\ncompression-algorithm = zstd\n' > /usr/lib/systemd/zram-generator.conf
 systemctl --global enable soarix-update-apps.timer
 # Soarix starts at the command line
 systemctl set-default multi-user.target

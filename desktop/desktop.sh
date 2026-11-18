@@ -14,7 +14,11 @@ dnf5 -y install \
     pipewire pipewire-pulseaudio wireplumber \
     mesa-dri-drivers \
     nautilus firefox \
-    google-noto-sans-fonts google-noto-emoji-fonts
+    google-noto-sans-fonts google-noto-emoji-fonts \
+    blueman \
+    gvfs-smb gvfs-mtp gvfs-nfs gvfs-afc \
+    system-config-printer cups-pk-helper simple-scan \
+    fprintd-pam
 
 # Login screen: greetd + tuigreet launching niri. The desktop image starts at the login screen.
 systemctl enable greetd.service
