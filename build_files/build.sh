@@ -19,7 +19,7 @@ dnf5 -y install \
     NetworkManager NetworkManager-wifi \
     mesa-dri-drivers \
     nautilus firefox \
-    flatpak distrobox
+    flatpak distrobox \n    virtualbox-guest-additions qemu-guest-agent spice-vdagent
 
 ### Login screen: greetd + tuigreet launching niri
 systemctl enable greetd.service

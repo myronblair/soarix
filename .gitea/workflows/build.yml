@@ -14,8 +14,18 @@ jobs:
       - name: Build container image
         run: sudo podman build --pull=newer -t localhost/soarix:latest .
 
+      - name: Prepare ISO build environment
+        run: |
+          # The ISO tool needs the boot files and ISO utilities inside its environment image.
+          mkdir -p /tmp/be && cat > /tmp/be/Containerfile <<'EOF2'
+          FROM localhost/soarix:latest
+          RUN dnf5 -y install grub2-efi-x64-cdboot xorriso isomd5sum syslinux-nonlinux mtools dosfstools squashfs-tools && mkdir -p /boot/efi/EFI/fedora && cp -a /usr/lib/efi/*/*/EFI/fedora/. /boot/efi/EFI/fedora/
+          EOF2
+          sed -i 's/^          //' /tmp/be/Containerfile
+          sudo podman build -q -t localhost/soarix-buildenv /tmp/be
+
       - name: Build installer ISO
         run: |
           mkdir -p /opt/soarix-out && sudo rm -rf /opt/soarix-out/*
-          sudo image-builder build             --bootc-ref localhost/soarix:latest --bootc-default-fs ext4             --output-dir /opt/soarix-out bootc-generic-iso
+          sudo image-builder build             --bootc-ref localhost/soarix-buildenv             --bootc-installer-payload-ref localhost/soarix:latest             --bootc-default-fs ext4             --output-dir /opt/soarix-out bootc-generic-iso
           find /opt/soarix-out -name '*.iso' -exec ls -lh {} \; | tee /opt/soarix-out/SIZE.txt
