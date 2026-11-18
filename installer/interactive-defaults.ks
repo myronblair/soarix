@@ -16,6 +16,7 @@ if grep -q 'soarix.desktop=1' /proc/cmdline; then
     mkdir -p "$v/lib/soarix" && touch "$v/lib/soarix/want-desktop"
   done
 fi
+for d in /mnt/sysroot/ostree/deploy/*/deploy/*/etc; do echo soarix > "$d/hostname"; done
 umount /var/tmp 2>/dev/null || true
 rm -rf /mnt/sysroot/.soarix-staging
 %end

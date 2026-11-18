@@ -71,6 +71,7 @@ HOME_URL="https://getsoarix.com"
 SUPPORT_URL="https://getsoarix.com"
 BUG_REPORT_URL="https://github.com/myronblair/soarix/issues"
 LOGO=soarix-logo
+DEFAULT_HOSTNAME=soarix
 OSR
 ln -sf ../usr/lib/os-release /etc/os-release
 cat > /etc/issue <<ISSUE
@@ -81,6 +82,9 @@ To start the desktop interface after you log in, run:   sudo soarix-desktop on
 ISSUE
 echo "Soarix ${VER}" > /etc/issue.net
 echo "soarix" > /etc/hostname
+# Quiet the console: no kernel audit messages over the login screen
+mkdir -p /usr/lib/bootc/kargs.d
+printf 'kargs = ["audit=0", "loglevel=3"]\n' > /usr/lib/bootc/kargs.d/10-soarix.toml
 # Boot menu label (GRUB reads this)
 echo 'GRUB_DISTRIBUTOR="Soarix"' >> /etc/default/grub
 # Credit required by Fedora's trademark guidelines / licenses
