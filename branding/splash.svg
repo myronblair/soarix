@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 416 265">
+  <rect width="416" height="265" fill="#0b1220"/>
+  <g transform="translate(128,28) scale(.32)">
+    <path d="M104 400 C150 288 236 190 392 130" fill="none" stroke="#2bd9b4" stroke-width="38" stroke-linecap="round"/>
+    <circle cx="392" cy="128" r="30" fill="#ffb84d"/>
+  </g>
+  <text x="208" y="214" text-anchor="middle" font-family="DejaVu Sans, Segoe UI, Arial, sans-serif" font-weight="700" font-size="34" letter-spacing="8" fill="#e8f3ff">SOARIX</text>
+</svg>

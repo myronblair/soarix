@@ -1,10 +1,8 @@
 name: Build Soarix
-# Builds the Soarix OS image, the Soarix Server image, the installer environment and the
-# installer ISO on the soarix-build runner. Publishing to the registry and signing run only
-# when the GHCR_TOKEN / SIGNING_SECRET secrets exist on this repository.
+# Builds the Soarix core (command line) image, the Desktop and Server images that layer on it,
+# the installer environment and the installer ISO on the soarix-build runner.
+# Publishing to the registry and signing run only when GHCR_TOKEN / SIGNING_SECRET exist.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 env:
@@ -23,14 +21,17 @@ jobs:
           for t in podman image-builder; do command -v $t >/dev/null || { echo "missing $t on the runner"; exit 1; }; done
           df -h /var/lib/containers | tail -1
 
-      - name: Build Soarix OS image
+      - name: Build Soarix core image
         run: sudo podman build --no-cache --pull=newer -t localhost/soarix:latest .
+
+      - name: Build Soarix Desktop image
+        run: sudo podman build --no-cache -f desktop/Containerfile --build-arg BASE=localhost/soarix:latest -t localhost/soarix-desktop:latest .
 
       - name: Build Soarix Server image
         run: sudo podman build --no-cache -f server/Containerfile --build-arg BASE=localhost/soarix:latest -t localhost/soarix-server:latest .
 
       - name: Build installer environment
-        run: sudo podman build -f installer/Containerfile -t localhost/soarix-installer:latest installer
+        run: sudo podman build --no-cache -f installer/Containerfile -t localhost/soarix-installer:latest .
 
       - name: Build installer ISO
         run: |
@@ -42,7 +43,7 @@ jobs:
             --output-dir "$OUT" generic-iso
           find "$OUT" -name '*.iso' -exec ls -lh {} \; | tee "$OUT/SIZE.txt"
 
-      - name: Publish image (private registry package)
+      - name: Publish images (private registry packages)
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
@@ -51,11 +52,12 @@ jobs:
           echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u myronblair --password-stdin
           for t in latest "$VER" "build-${GITHUB_RUN_NUMBER:-0}"; do
             sudo podman push localhost/soarix:latest "$IMAGE:$t"
+            sudo podman push localhost/soarix-desktop:latest "$IMAGE-desktop:$t"
+            sudo podman push localhost/soarix-server:latest "$IMAGE-server:$t"
           done
-          sudo podman push localhost/soarix-server:latest "$IMAGE-server:latest"
           sudo podman logout ghcr.io
 
-      - name: Sign image
+      - name: Sign images
         env:
           SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
@@ -64,6 +66,8 @@ jobs:
           command -v cosign >/dev/null || { echo "cosign not installed on the runner - skipping"; exit 0; }
           echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u myronblair --password-stdin
           printf '%s' "$SIGNING_SECRET" > /tmp/cosign.key
-          COSIGN_PASSWORD="" cosign sign -y --key /tmp/cosign.key "$IMAGE:latest" || echo "signing failed (non-fatal)"
+          for i in "$IMAGE" "$IMAGE-desktop" "$IMAGE-server"; do
+            COSIGN_PASSWORD="" cosign sign -y --key /tmp/cosign.key "$i:latest" || echo "signing $i failed (non-fatal)"
+          done
           shred -u /tmp/cosign.key 2>/dev/null || rm -f /tmp/cosign.key
           sudo podman logout ghcr.io

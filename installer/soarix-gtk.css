@@ -1,0 +1,59 @@
+/* ---- Soarix look for the installer ----
+ * midnight #0b1220, mint #2bd9b4 (primary), sky #4aa8ff, sun #ffb84d */
+
+@define-color soarix_mint #2bd9b4;
+@define-color soarix_sky #4aa8ff;
+@define-color soarix_sun #ffb84d;
+@define-color soarix_ink #06121f;
+
+/* sidebar logo (product logo layer sits on top of the sidebar background) */
+.product-logo {
+    background-image: url("/usr/share/anaconda/pixmaps/sidebar-logo.png");
+    background-repeat: no-repeat;
+    background-position: center 24px;
+    background-size: 96px 96px;
+}
+
+/* primary buttons */
+button.suggested-action,
+button.default {
+    background-image: none;
+    background-color: @soarix_mint;
+    color: @soarix_ink;
+    border: none;
+    font-weight: bold;
+}
+button.suggested-action:hover,
+button.default:hover {
+    background-color: @soarix_sky;
+    color: @soarix_ink;
+}
+
+/* selected rows, list items and highlights */
+row:selected,
+treeview:selected,
+listview row:selected,
+.view:selected {
+    background-color: @soarix_mint;
+    color: @soarix_ink;
+}
+
+/* progress bar */
+progressbar progress {
+    background-image: none;
+    background-color: @soarix_mint;
+}
+progressbar trough {
+    background-color: rgba(11, 18, 32, 0.15);
+}
+
+/* links and focus rings */
+link, a { color: @soarix_sky; }
+*:focus { outline-color: @soarix_mint; }
+
+/* title/header strip */
+.anaconda-header, headerbar {
+    background-image: url("/usr/share/anaconda/pixmaps/anaconda_header.png");
+    background-color: #0b1220;
+    color: #e8f3ff;
+}

@@ -1,0 +1,5 @@
+#!/bin/bash
+# If the installer was told to include the desktop, fetch it once the network is up.
+[ -e /var/lib/soarix/want-desktop ] || exit 0
+rpm -q niri >/dev/null 2>&1 && { rm -f /var/lib/soarix/want-desktop; exit 0; }
+/usr/bin/soarix-desktop on || echo "Desktop download did not finish; run: sudo soarix-desktop on" > /etc/motd.d/20-soarix-desktop

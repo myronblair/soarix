@@ -1,0 +1,63 @@
+#!/bin/bash
+# soarix-desktop - add or remove the Soarix desktop interface.
+#
+#   sudo soarix-desktop on       get the desktop (downloads it the first time), then start it
+#   sudo soarix-desktop off      back to the command line
+#   soarix-desktop status
+#
+# Soarix installs as a small command-line system. The desktop is a separate download delivered
+# the same safe way as every other Soarix update; after the first download your computer
+# restarts into it. Turn it off any time with 'sudo soarix-desktop off'.
+set -e
+CONF=/etc/soarix/update.conf
+DESKTOP_IMAGE=$(grep -s '^DESKTOP_IMAGE=' "$CONF" | cut -d= -f2- | tr -d '"')
+DESKTOP_IMAGE=${DESKTOP_IMAGE:-ghcr.io/myronblair/soarix-desktop:latest}
+
+need_root() { [ "$(id -u)" -eq 0 ] || { echo "Run with sudo:  sudo soarix-desktop $1"; exit 1; }; }
+installed() { rpm -q niri >/dev/null 2>&1; }
+
+case "${1:-status}" in
+  on)
+    need_root on
+    if installed; then
+      systemctl set-default graphical.target
+      systemctl enable greetd.service >/dev/null 2>&1 || true
+      echo "Starting the Soarix desktop ... (to return to the command line: sudo soarix-desktop off)"
+      systemctl start greetd.service
+    else
+      echo "Downloading the Soarix desktop (this can take several minutes) ..."
+      if bootc switch "$DESKTOP_IMAGE"; then
+        rm -f /var/lib/soarix/want-desktop
+        echo
+        echo "The desktop is ready. Restarting in 10 seconds to start it (Ctrl+C to cancel) ..."
+        sleep 10
+        systemctl reboot
+      else
+        echo
+        echo "Could not download the desktop. Check the network connection and that this"
+        echo "computer has access to the Soarix image, then run again: sudo soarix-desktop on"
+        exit 1
+      fi
+    fi
+    ;;
+  off)
+    need_root off
+    systemctl set-default multi-user.target
+    systemctl disable greetd.service >/dev/null 2>&1 || true
+    systemctl stop greetd.service 2>/dev/null || true
+    systemctl start getty@tty1.service 2>/dev/null || true
+    echo "The desktop is off. You are at the command line. (Turn it back on: sudo soarix-desktop on)"
+    ;;
+  status)
+    if installed; then
+      echo "Desktop: installed"
+      echo "Starts at boot: $(systemctl is-enabled greetd.service 2>/dev/null || echo no)"
+    else
+      echo "Desktop: not installed (command line only). Get it with: sudo soarix-desktop on"
+    fi
+    ;;
+  *)
+    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+    exit 2
+    ;;
+esac
