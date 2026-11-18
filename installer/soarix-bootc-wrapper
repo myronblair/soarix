@@ -11,7 +11,13 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
   mount --bind "$stage" "$stage"
   mount --bind "$stage" /var/tmp
   echo "soarix: staging on $stage" >&2
+  # The installer has no swap and little RAM: keep dirty data small and release cached pages
+  # so the system does not lock up while the 3 GB image is written.
+  sysctl -q vm.dirty_bytes=33554432 vm.dirty_background_bytes=8388608 vm.vfs_cache_pressure=200 vm.min_free_kbytes=131072 2>/dev/null
+  ( while :; do sync; echo 1 > /proc/sys/vm/drop_caches 2>/dev/null; sleep 3; done ) &
+  flusher=$!
   "$REAL" "$@"; rc=$?
+  kill $flusher 2>/dev/null
   if [ $rc -ne 0 ]; then
     echo "soarix: bootc failed (rc=$rc); staging was on the target disk" >&2
   fi
