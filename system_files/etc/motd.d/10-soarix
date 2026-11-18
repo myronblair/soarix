@@ -1,9 +1,11 @@
 
-  Welcome to Soarix.
+          ____..--*
+     _.-''' _..-'
+  ,'..--'''        Welcome to Soarix.
 
   You are at the command line. To start the desktop interface:
 
       sudo soarix-desktop on
 
-  Other helpers:  soarix-update status   soarix-runtime available   soarix-desktop off
+  Other helpers:  soarix-update status   soarix-runtime available   soarix-hardware
 
