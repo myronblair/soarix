@@ -91,7 +91,8 @@ echo "Soarix is based on Fedora. Fedora is a trademark of Red Hat, Inc." > /usr/
 for f in /usr/share/pixmaps/fedora-logo.png /usr/share/pixmaps/fedora-logo-small.png /usr/share/pixmaps/system-logo-white.png; do
     [ -e "$f" ] && cp -f /usr/share/pixmaps/soarix-logo.png "$f" || true
 done
-rm -f /usr/share/pixmaps/fedora-logo-sprite.svg /usr/share/pixmaps/bootloader/fedora.icns 2>/dev/null || true
+rm -f /usr/share/pixmaps/fedora-logo-sprite.svg /usr/share/pixmaps/bootloader/fedora.icns \
+      /usr/share/pixmaps/bootloader/fedora.vol /usr/share/pixmaps/bootloader/fedora-media.vol 2>/dev/null || true
 
 ### Cleanup
 dnf5 clean all
