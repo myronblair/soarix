@@ -122,7 +122,15 @@ def cmd_check():
     return 0
 
 
+def licensed():
+    if shutil.which("soarix-license"):
+        return run(["soarix-license", "require"]).returncode == 0
+    return True
+
+
 def cmd_os(restart=False):
+    if not licensed():
+        return 1
     print("Downloading the newest Soarix ...")
     r = run(privileged(["bootc", "upgrade"]))
     if r.returncode != 0:

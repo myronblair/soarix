@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""soarix-license - the license for this Soarix computer.
+
+  soarix-license activate KEY [--edition core|desktop|server]   register this computer with your license key
+  soarix-license status                                         what this computer is licensed for
+  soarix-license check                                          ask the license server now (the daily timer does this)
+  soarix-license require [edition]                              exit 0 only when licensed (used by the updater)
+  soarix-license deactivate                                     free this computer's place on the license
+
+Soarix downloads and updates come from the Soarix license server. A computer that cannot reach it keeps
+working and keeps its license for 30 days; revoked or expired licenses stop new downloads and updates.
+"""
+import base64
+import json
+import os
+import socket
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+
+HOST = "licensing.tomtomenterprises.com"
+API = "https://%s/api/v1/soarix" % HOST
+LIC = "/etc/soarix/license.json"
+SID = "/etc/soarix/server.id"
+AUTH = "/etc/ostree/auth.json"
+GRACE = 30 * 86400
+EDITIONS = {"core": "core", "strip": "desktop", "server": "server"}  # os-release VARIANT_ID -> edition
+
+
+def osrel():
+    d = {}
+    try:
+        for ln in open("/usr/lib/os-release"):
+            if "=" in ln:
+                k, v = ln.strip().split("=", 1)
+                d[k] = v.strip('"')
+    except OSError:
+        pass
+    return d
+
+
+def own_edition():
+    return EDITIONS.get(osrel().get("VARIANT_ID", "core"), "core")
+
+
+def server_id():
+    try:
+        s = open(SID).read().strip()
+        if s:
+            return s
+    except OSError:
+        pass
+    s = str(uuid.uuid4())
+    os.makedirs(os.path.dirname(SID), exist_ok=True)
+    open(SID, "w").write(s + "\n")
+    return s
+
+
+def load():
+    try:
+        return json.load(open(LIC))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(d):
+    os.makedirs(os.path.dirname(LIC), exist_ok=True)
+    fd = os.open(LIC, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(d, f)
+
+
+def write_auth(token):
+    """Give bootc/podman the key for the Soarix registry (key is the password)."""
+    try:
+        a = json.load(open(AUTH))
+    except (OSError, ValueError):
+        a = {}
+    a.setdefault("auths", {})[HOST] = {"auth": base64.b64encode(("license:" + token).encode()).decode()}
+    os.makedirs(os.path.dirname(AUTH), exist_ok=True)
+    fd = os.open(AUTH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(a, f)
+
+
+def post(action, body):
+    req = urllib.request.Request("%s/%s" % (API, action), json.dumps(body).encode(),
+                                 {"Content-Type": "application/json", "User-Agent": "soarix-license"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode())
+        except ValueError:
+            return {"ok": False, "error": "http %d" % e.code}
+    except Exception:
+        return None  # no connection
+
+
+def need_root():
+    if os.geteuid() != 0:
+        print("Run with sudo:  sudo soarix-license %s" % " ".join(sys.argv[1:]))
+        sys.exit(1)
+
+
+MSG = {"invalid": "that license key is not valid for Soarix", "expired": "that license has expired",
+       "revoked": "that license has been revoked", "too_many_servers": "that license is already used on all the computers it allows",
+       "edition_not_licensed": "that license does not include this edition of Soarix"}
+
+
+def cmd_activate(a):
+    need_root()
+    ed = own_edition()
+    if "--edition" in a:
+        i = a.index("--edition")
+        ed = a[i + 1] if i + 1 < len(a) else ed
+        a = a[:i] + a[i + 2:]
+    if not a:
+        print("Usage: sudo soarix-license activate KEY")
+        return 2
+    key = a[0].strip()
+    r = post("activate", {"license": key, "server_id": server_id(), "hostname": socket.gethostname(),
+                          "version": osrel().get("VERSION_ID", ""), "os": "soarix", "edition": ed})
+    if r is None:
+        print("Could not reach the Soarix license server. Check the network connection and try again.")
+        return 1
+    if not r.get("ok"):
+        print("Not activated: %s." % MSG.get(r.get("error"), r.get("error", "unknown error")))
+        return 1
+    token = r["license"]
+    save({"token": token, "editions": r.get("editions", []), "edition": ed, "activated_at": int(time.time()), "last_ok": int(time.time()), "status": "active"})
+    write_auth(token)
+    print("Activated. This computer is licensed for: %s." % ", ".join(r.get("editions", [])))
+    return 0
+
+
+def cmd_check(quiet=False):
+    d = load()
+    if not d.get("token"):
+        if not quiet:
+            print("This computer has no license yet. Activate it with:  sudo soarix-license activate KEY")
+        return 1
+    r = post("check", {"license": d["token"], "server_id": server_id(), "version": osrel().get("VERSION_ID", "")})
+    now = int(time.time())
+    if r is None:  # offline: keep working through the grace period
+        left = d.get("last_ok", 0) + GRACE - now
+        if left > 0:
+            if not quiet:
+                print("Could not reach the license server; the license stays valid for %d more days." % (left // 86400))
+            return 0
+        print("This computer could not confirm its license for more than 30 days.")
+        return 1
+    if not r.get("ok"):
+        st = r.get("status") or r.get("error")
+        d["status"] = st
+        if os.geteuid() == 0:
+            save(d)
+        print("License problem: %s." % {"revoked": "the license has been revoked", "expired": "the license has expired",
+                                      "unknown_server": "this computer is not registered (run: sudo soarix-license activate KEY)"}.get(st, st))
+        return 1
+    d.update({"token": r.get("license", d["token"]), "editions": r.get("editions", d.get("editions", [])), "last_ok": now, "status": "active"})
+    if os.geteuid() == 0:
+        save(d)
+        write_auth(d["token"])
+    if not quiet:
+        print("License is active.")
+    return 0
+
+
+def cmd_status():
+    d = load()
+    if not d.get("token"):
+        print("Not licensed. Activate with:  sudo soarix-license activate KEY")
+        return 1
+    print("Status         : %s" % d.get("status", "unknown"))
+    print("Licensed for   : %s" % ", ".join(d.get("editions", [])))
+    print("This edition   : %s" % own_edition())
+    print("Last confirmed : %s" % time.strftime("%Y-%m-%d %H:%M", time.localtime(d.get("last_ok", 0))))
+    return 0
+
+
+def cmd_require(a):
+    ed = a[0] if a else own_edition()
+    d = load()
+    if not d.get("token"):
+        print("Soarix needs a license for downloads and updates. Activate with:  sudo soarix-license activate KEY")
+        return 1
+    if ed not in d.get("editions", []):
+        print("Your license does not include the %s edition." % ed)
+        return 1
+    return cmd_check(quiet=True)
+
+
+def cmd_deactivate():
+    need_root()
+    d = load()
+    if d.get("token"):
+        post("deactivate", {"license": d["token"], "server_id": server_id()})
+    for f in (LIC,):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    print("This computer has been removed from the license.")
+    return 0
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    c = a[0]
+    if c == "activate":
+        return cmd_activate(a[1:])
+    if c == "check":
+        return cmd_check()
+    if c == "status":
+        return cmd_status()
+    if c == "require":
+        return cmd_require(a[1:])
+    if c == "deactivate":
+        return cmd_deactivate()
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

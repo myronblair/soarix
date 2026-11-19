@@ -11,7 +11,7 @@
 set -e
 CONF=/etc/soarix/update.conf
 DESKTOP_IMAGE=$(grep -s '^DESKTOP_IMAGE=' "$CONF" | cut -d= -f2- | tr -d '"')
-DESKTOP_IMAGE=${DESKTOP_IMAGE:-ghcr.io/myronblair/soarix-desktop:latest}
+DESKTOP_IMAGE=${DESKTOP_IMAGE:-licensing.tomtomenterprises.com/soarix/desktop:latest}
 
 need_root() { [ "$(id -u)" -eq 0 ] || { echo "Run with sudo:  sudo soarix-desktop $1"; exit 1; }; }
 installed() { rpm -q niri >/dev/null 2>&1; }
@@ -25,6 +25,7 @@ case "${1:-status}" in
       echo "Starting the Soarix desktop ... (to return to the command line: sudo soarix-desktop off)"
       systemctl start greetd.service
     else
+      soarix-license require desktop || exit 1
       echo "Downloading the Soarix desktop (this can take several minutes) ..."
       if bootc switch "$DESKTOP_IMAGE"; then
         rm -f /var/lib/soarix/want-desktop

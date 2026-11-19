@@ -42,7 +42,7 @@ dnf5 -y install \
     mtr traceroute nmap-ncat bind-utils
 
 ### Soarix tools: language runtimes, OS/app updater, desktop switch
-chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/bin/soarix-hardware /usr/libexec/soarix-firstboot-desktop
+chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/bin/soarix-license /usr/bin/soarix-hardware /usr/libexec/soarix-firstboot-desktop
 systemctl enable soarix-update.timer soarix-firstboot-desktop.service soarix-hostname.service cockpit.socket
 
 # Hardware and everyday services on by default. Sharing and remote access stay OFF until the owner turns them on
