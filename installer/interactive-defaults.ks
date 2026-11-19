@@ -28,3 +28,13 @@ done
 umount /var/tmp 2>/dev/null || true
 rm -rf /mnt/sysroot/.soarix-staging
 %end
+
+# List what was installed (shown in the installer's program log)
+%post --nochroot --log=/tmp/soarix-packages.log
+d=$(ls -d /mnt/sysroot/ostree/deploy/*/deploy/* 2>/dev/null | head -1)
+if [ -n "$d" ] && command -v rpm >/dev/null; then
+  db="$d/usr/lib/sysimage/rpm"; [ -d "$db" ] || db="$d/usr/share/rpm"
+  echo "soarix: installed $(rpm --dbpath "$db" -qa 2>/dev/null | wc -l) packages:" | tee /dev/stderr
+  rpm --dbpath "$db" -qa --qf '  %{NAME} %{VERSION}\n' 2>/dev/null | sort | tee /dev/stderr
+fi
+%end

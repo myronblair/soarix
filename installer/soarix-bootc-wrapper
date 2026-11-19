@@ -19,18 +19,21 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
   ( while :; do sync; echo 1 > /proc/sys/vm/drop_caches 2>/dev/null; sleep 3; done ) &
   flusher=$!
   rc=0
+  echo "soarix: [1/4] license accepted" >&2
   # Net install: the image comes from the license server, stored on the new disk, not in RAM
   if [ -f /run/soarix/license.json ]; then
     mkdir -p "$stage/storage" "$stage/run"
     printf '[storage]\ndriver = "overlay"\ngraphroot = "%s/storage"\nrunroot = "%s/run"\n' "$stage" "$stage" > "$stage/storage.conf"
     export CONTAINERS_STORAGE_CONF="$stage/storage.conf"
-    echo "soarix: downloading $IMAGE (this takes a few minutes)" >&2
+    echo "soarix: [2/4] downloading Soarix from the license server (this takes a few minutes)" >&2
     if ! skopeo copy --authfile /run/containers/0/auth.json "docker://$IMAGE" "containers-storage:localhost/soarix:latest" >&2; then
       echo "soarix: the download failed (license, network or server)" >&2
       rc=1
     fi
   fi
+  [ $rc -eq 0 ] && echo "soarix: [3/4] writing the system to the disk" >&2
   [ $rc -eq 0 ] && { "$REAL" "$@"; rc=$?; }
+  [ $rc -eq 0 ] && echo "soarix: [4/4] finishing" >&2
   kill $flusher 2>/dev/null
   if [ $rc -ne 0 ]; then
     echo "soarix: install failed (rc=$rc); staging was on the target disk" >&2
