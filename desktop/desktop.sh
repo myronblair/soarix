@@ -8,7 +8,7 @@ cp -avf /ctx/usr/. /usr/
 dnf5 -y install \
     niri xwayland-satellite \
     greetd greetd-tuigreet \
-    waybar fuzzel mako foot \
+    waybar fuzzel mako foot swaybg \
     xdg-desktop-portal-gtk xdg-desktop-portal-gnome \
     gnome-keyring polkit \
     pipewire pipewire-pulseaudio wireplumber \
@@ -24,6 +24,13 @@ dnf5 -y install \
 systemctl enable greetd.service
 systemctl set-default graphical.target
 systemctl disable gdm.service sddm.service 2>/dev/null || true
+
+# Default desktop setup: wallpaper, terminal (foot) on Mod+T, launcher on Mod+D
+mkdir -p /etc/niri
+sed 's/alacritty/foot/g' /usr/share/doc/niri/default-config.kdl > /etc/niri/config.kdl
+printf '
+spawn-at-startup "swaybg" "-i" "/usr/share/backgrounds/soarix/default.png" "-m" "fill"
+' >> /etc/niri/config.kdl
 
 # Edition name shown in About / os-release
 sed -i 's/^VARIANT=.*/VARIANT="Strip desktop"/; s/^VARIANT_ID=.*/VARIANT_ID=strip/' /usr/lib/os-release
