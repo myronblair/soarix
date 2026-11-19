@@ -1,8 +1,10 @@
 #!/bin/bash
 # Soarix: Anaconda empties the new disk right before it runs bootc, and the installer's own
 # temporary space (RAM) is far too small for the OS image. So just before bootc starts,
-# point its temporary area at the new disk, and clean up afterwards.
+# point its temporary area at the new disk, download the licensed image there (the ISO
+# carries no operating system), and clean up afterwards.
 REAL=/usr/libexec/soarix/bootc.real
+IMAGE=licensing.tomtomenterprises.com/soarix/core:latest
 if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
   target="${@: -1}"
   stage="$target/.soarix-staging"
@@ -16,10 +18,22 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
   sysctl -q vm.dirty_bytes=33554432 vm.dirty_background_bytes=8388608 vm.vfs_cache_pressure=200 vm.min_free_kbytes=131072 2>/dev/null
   ( while :; do sync; echo 1 > /proc/sys/vm/drop_caches 2>/dev/null; sleep 3; done ) &
   flusher=$!
-  "$REAL" "$@"; rc=$?
+  rc=0
+  # Net install: the image comes from the license server, stored on the new disk, not in RAM
+  if [ -f /run/soarix/license.json ]; then
+    mkdir -p "$stage/storage" "$stage/run"
+    printf '[storage]\ndriver = "overlay"\ngraphroot = "%s/storage"\nrunroot = "%s/run"\n' "$stage" "$stage" > "$stage/storage.conf"
+    export CONTAINERS_STORAGE_CONF="$stage/storage.conf"
+    echo "soarix: downloading $IMAGE (this takes a few minutes)" >&2
+    if ! skopeo copy --authfile /run/containers/0/auth.json "docker://$IMAGE" "containers-storage:localhost/soarix:latest" >&2; then
+      echo "soarix: the download failed (license, network or server)" >&2
+      rc=1
+    fi
+  fi
+  [ $rc -eq 0 ] && { "$REAL" "$@"; rc=$?; }
   kill $flusher 2>/dev/null
   if [ $rc -ne 0 ]; then
-    echo "soarix: bootc failed (rc=$rc); staging was on the target disk" >&2
+    echo "soarix: install failed (rc=$rc); staging was on the target disk" >&2
   fi
   umount /var/tmp 2>/dev/null || umount -l /var/tmp 2>/dev/null
   umount "$stage" 2>/dev/null || umount -l "$stage" 2>/dev/null

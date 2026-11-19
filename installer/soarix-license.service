@@ -1,0 +1,23 @@
+[Unit]
+Description=Soarix license key
+After=basic.target NetworkManager.service systemd-user-sessions.service
+Wants=NetworkManager.service
+Before=anaconda.service anaconda-direct.service anaconda-tmux@tty1.service getty@tty1.service
+ConditionPathExists=!/run/soarix/license.json
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutSec=0
+ExecStartPre=-/usr/bin/nm-online -s -q --timeout=90
+ExecStart=/usr/libexec/soarix/license-prompt
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+WantedBy=anaconda.target

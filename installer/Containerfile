@@ -1,5 +1,5 @@
 # Soarix installer environment: the live system the installer ISO boots into.
-# Built from Fedora's bootc image plus Anaconda; the Soarix core image is the payload.
+# Built from Fedora's bootc image plus Anaconda; the Soarix core image is downloaded from the license server.
 # Build from the repository root:  podman build -f installer/Containerfile -t localhost/soarix-installer .
 FROM quay.io/fedora/fedora-bootc:44
 
@@ -11,7 +11,7 @@ RUN dnf5 -y install \
     dracut-config-generic dracut-network dracut-live \
     net-tools grub2-efi-x64-cdboot grub2-common grub2-pc-modules \
     plymouth default-fonts-core-sans default-fonts-other-sans google-noto-sans-cjk-fonts \
-    xorriso squashfs-tools isomd5sum jq \
+    xorriso squashfs-tools isomd5sum jq skopeo podman \
  && dnf5 clean all
 
 RUN printf '%s\n' 'NAME="Soarix"' 'PRETTY_NAME="Soarix 0.1"' 'ID=soarix' 'ID_LIKE="fedora"' \
@@ -43,7 +43,15 @@ COPY installer/soarix-bootc-wrapper /usr/libexec/soarix/bootc-wrapper
 RUN mv /usr/bin/bootc /usr/libexec/soarix/bootc.real && \
     install -m 755 /usr/libexec/soarix/bootc-wrapper /usr/bin/bootc
 
-# What the installer installs (the Soarix core image is embedded in the ISO)
+# License key: asked and activated before the installer starts (the ISO carries no operating system)
+COPY installer/soarix-license-prompt /usr/libexec/soarix/license-prompt
+COPY installer/soarix-license.service /usr/lib/systemd/system/soarix-license.service
+RUN chmod 755 /usr/libexec/soarix/license-prompt && \
+    mkdir -p /usr/lib/systemd/system/anaconda.target.wants /usr/lib/systemd/system/anaconda.service.d && \
+    ln -sf ../soarix-license.service /usr/lib/systemd/system/anaconda.target.wants/soarix-license.service && \
+    printf '[Unit]\nRequires=soarix-license.service\nAfter=soarix-license.service\n' > /usr/lib/systemd/system/anaconda.service.d/10-soarix-license.conf
+
+# What the installer installs (the OS image is downloaded from the license server during the install)
 COPY installer/interactive-defaults.ks /usr/share/anaconda/interactive-defaults.ks
 
 # Minimum plumbing normally done by lorax to make Anaconda run

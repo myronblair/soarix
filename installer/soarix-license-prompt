@@ -1,0 +1,112 @@
+#!/usr/bin/python3
+"""Soarix installer: ask for the license key and activate it, before the installer starts.
+
+The key can also be given on the boot line (soarix.license=KEY), for unattended installs.
+On success it leaves, for the install that follows:
+  /run/soarix/license.json   key, editions, server id
+  /run/soarix/server.id
+  /etc/ostree/auth.json and /run/containers/0/auth.json   the key as the registry password
+"""
+import base64
+import json
+import os
+import re
+import socket
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+
+HOST = "licensing.tomtomenterprises.com"
+API = "https://%s/api/v1/soarix/activate" % HOST
+RUN = "/run/soarix"
+
+MSG = {"invalid": "that license key is not valid for Soarix", "expired": "that license has expired",
+       "revoked": "that license has been revoked", "too_many_servers": "that license is already used on all the computers it allows",
+       "edition_not_licensed": "that license does not include this edition of Soarix"}
+
+
+def cmdline_key():
+    try:
+        m = re.search(r"(?:^|\s)soarix\.license=(\S+)", open("/proc/cmdline").read())
+        return m.group(1) if m else ""
+    except OSError:
+        return ""
+
+
+def activate(key, sid):
+    body = {"license": key, "server_id": sid, "hostname": socket.gethostname(), "version": "0.1", "os": "soarix-installer", "edition": "core"}
+    req = urllib.request.Request(API, json.dumps(body).encode(), {"Content-Type": "application/json", "User-Agent": "soarix-installer"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode())
+        except ValueError:
+            return {"ok": False, "error": "http %d" % e.code}
+    except Exception:
+        return None
+
+
+def write_auth(path, token):
+    try:
+        a = json.load(open(path))
+    except (OSError, ValueError):
+        a = {}
+    a.setdefault("auths", {})[HOST] = {"auth": base64.b64encode(("license:" + token).encode()).decode()}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(a, f)
+
+
+def main():
+    os.makedirs(RUN, exist_ok=True)
+    if os.path.isfile(RUN + "/license.json"):
+        return 0  # already done (the service can be restarted)
+    sid = str(uuid.uuid4())
+    key = cmdline_key()
+    print("\033[2J\033[H")
+    print("  Soarix installer")
+    print("  ----------------")
+    print("  Soarix needs a license key to download and install.\n")
+    tries = 0
+    while True:
+        if not key:
+            try:
+                key = input("  License key: ").strip()
+            except EOFError:
+                return 1
+        if not key:
+            continue
+        print("  Checking the key ...")
+        r = activate(key, sid)
+        if r is None:
+            print("  Could not reach the license server. Check the network cable or Wi-Fi.")
+            ans = input("  Press Enter to try again, or type the key again: ").strip() if sys.stdin.isatty() else ""
+            key = ans or key
+            tries += 1
+            if tries > 20:
+                return 1
+            time.sleep(2)
+            continue
+        if r.get("ok"):
+            break
+        print("  Not accepted: %s.\n" % MSG.get(r.get("error"), r.get("error", "unknown error")))
+        key = ""
+    token = r["license"]
+    json.dump({"token": token, "editions": r.get("editions", []), "edition": "core", "activated_at": int(time.time()),
+               "last_ok": int(time.time()), "status": "active"}, open(RUN + "/license.json", "w"))
+    os.chmod(RUN + "/license.json", 0o600)
+    open(RUN + "/server.id", "w").write(sid + "\n")
+    for p in ("/etc/ostree/auth.json", "/run/containers/0/auth.json"):
+        write_auth(p, token)
+    print("  Activated. Licensed editions: %s.\n  Starting the installer ...\n" % ", ".join(r.get("editions", [])))
+    time.sleep(2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
