@@ -5,6 +5,7 @@ COPY system_files /system_files
 
 # Base: Fedora's official bootc (atomic, image-based) image
 FROM quay.io/fedora/fedora-bootc:44
+LABEL org.opencontainers.image.source="https://github.com/myronblair/soarix"
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
