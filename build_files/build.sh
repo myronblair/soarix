@@ -43,7 +43,7 @@ dnf5 -y install \
 
 ### Soarix tools: language runtimes, OS/app updater, desktop switch
 chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/bin/soarix-hardware /usr/libexec/soarix-firstboot-desktop
-systemctl enable soarix-update.timer soarix-firstboot-desktop.service cockpit.socket
+systemctl enable soarix-update.timer soarix-firstboot-desktop.service soarix-hostname.service cockpit.socket
 
 # Hardware and everyday services on by default. Sharing and remote access stay OFF until the owner turns them on
 # (printer sharing is off in CUPS by default; SSH and file-sharing servers are not enabled).

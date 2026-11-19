@@ -1,0 +1,14 @@
+[Unit]
+Description=Give a new Soarix install its default hostname
+ConditionPathExists=!/var/lib/soarix/hostname-set
+After=local-fs.target
+Before=systemd-user-sessions.service getty@tty1.service greetd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Only when no name was chosen: the installer can leave /etc/hostname empty
+ExecStart=/bin/sh -c 'n=$(tr -d "[:space:]" < /etc/hostname 2>/dev/null); [ -n "$n" ] || { echo soarix > /etc/hostname; hostname soarix; }; mkdir -p /var/lib/soarix; touch /var/lib/soarix/hostname-set'
+
+[Install]
+WantedBy=multi-user.target
