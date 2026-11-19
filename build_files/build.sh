@@ -98,5 +98,12 @@ done
 rm -f /usr/share/pixmaps/fedora-logo-sprite.svg /usr/share/pixmaps/bootloader/fedora.icns \
       /usr/share/pixmaps/bootloader/fedora.vol /usr/share/pixmaps/bootloader/fedora-media.vol 2>/dev/null || true
 
+### Rebuild the initramfs so the early-boot screen says Soarix (it copies os-release at build time)
+KVER="$(ls /usr/lib/modules | head -n1)"
+export DRACUT_NO_XATTR=1
+dracut --no-hostonly --kver "$KVER" --reproducible --add ostree \
+    -f "/usr/lib/modules/$KVER/initramfs.img"
+chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
+
 ### Cleanup
 dnf5 clean all
