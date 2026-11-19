@@ -30,7 +30,13 @@ mkdir -p /etc/niri
 sed 's/alacritty/foot/g' /usr/share/doc/niri/default-config.kdl > /etc/niri/config.kdl
 printf '
 spawn-at-startup "swaybg" "-i" "/usr/share/backgrounds/soarix/default.png" "-m" "fill"
+spawn-at-startup "waybar" "-c" "/etc/soarix/waybar/config.jsonc" "-s" "/etc/soarix/waybar/style.css"
 ' >> /etc/niri/config.kdl
+
+# One bar only: the packaged Sway-style bar is replaced by the Soarix one, started by niri
+mkdir -p /etc/systemd/user
+ln -sf /dev/null /etc/systemd/user/waybar.service
+chmod 0755 /usr/bin/soarix-power
 
 # Edition name shown in About / os-release
 sed -i 's/^VARIANT=.*/VARIANT="Strip desktop"/; s/^VARIANT_ID=.*/VARIANT_ID=strip/' /usr/lib/os-release

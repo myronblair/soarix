@@ -1,0 +1,33 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 36,
+    "spacing": 6,
+    "modules-left": ["custom/apps", "niri/workspaces"],
+    "modules-center": ["wlr/taskbar"],
+    "modules-right": ["tray", "pulseaudio", "network", "cpu", "memory", "battery", "clock", "custom/power"],
+
+    "custom/apps": { "format": "Apps", "tooltip": false, "on-click": "fuzzel" },
+    "niri/workspaces": { "format": "{index}" },
+    "wlr/taskbar": {
+        "format": "{title}",
+        "icon-size": 20,
+        "max-length": 24,
+        "tooltip-format": "{title}",
+        "on-click": "activate",
+        "on-click-middle": "close"
+    },
+    "tray": { "spacing": 10 },
+    "pulseaudio": { "format": "Vol {volume}%", "format-muted": "Muted", "scroll-step": 5 },
+    "network": {
+        "format-wifi": "{essid} {signalStrength}%",
+        "format-ethernet": "{ipaddr}",
+        "format-disconnected": "Offline",
+        "on-click": "foot nmtui"
+    },
+    "cpu": { "format": "CPU {usage}%", "interval": 3 },
+    "memory": { "format": "RAM {percentage}%", "interval": 5 },
+    "battery": { "format": "Bat {capacity}%", "format-charging": "Chg {capacity}%", "format-full": "Full" },
+    "clock": { "format": "{:%a %d %b   %H:%M}", "tooltip-format": "{:%A, %d %B %Y}" },
+    "custom/power": { "format": "Power", "tooltip": false, "on-click": "soarix-power" }
+}
