@@ -1,5 +1,8 @@
 bootc --source-imgref containers-storage:localhost/soarix:latest --target-imgref licensing.tomtomenterprises.com/soarix/core:latest
 
+# The login created at the license prompt (username and password; root stays locked)
+%include /run/soarix/user.ks
+
 # The installer's own working space lives in RAM and is far too small for the OS image.
 # Once the disk is partitioned and mounted, the bootc wrapper stages on the new disk and
 # downloads the licensed image there (the license key was activated before the installer started).

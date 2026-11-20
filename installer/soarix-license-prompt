@@ -62,6 +62,38 @@ def write_auth(path, token):
         json.dump(a, f)
 
 
+RESERVED = {"root", "daemon", "bin", "sys", "adm", "nobody", "admin", "guest", "sshd", "install"}
+
+
+def make_login():
+    """Ask for the first user (administrator through sudo) and leave a kickstart fragment for the installer.
+    The root account stays locked; this user can run 'sudo -i'."""
+    import getpass
+    import subprocess
+    print("  Create your login for this computer.")
+    print("  You will use it to sign in, and it can run administrator commands with sudo.\n")
+    while True:
+        name = input("  Username: ").strip()
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,30}", name) or name in RESERVED:
+            print("  Use lowercase letters, numbers, - or _, starting with a letter (not a system name).\n")
+            continue
+        break
+    while True:
+        p1 = getpass.getpass("  Password (at least 8 characters): ")
+        if len(p1) < 8:
+            print("  That is too short.\n")
+            continue
+        if getpass.getpass("  Type it again: ") != p1:
+            print("  The two passwords did not match.\n")
+            continue
+        break
+    h = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=p1 + "\n", capture_output=True, text=True).stdout.strip()
+    with open(RUN + "/user.ks", "w") as f:
+        f.write("rootpw --lock\nuser --name=%s --groups=wheel --iscrypted --password=%s\n" % (name, h))
+    os.chmod(RUN + "/user.ks", 0o600)
+    print("  Login created: %s\n" % name)
+
+
 def main():
     os.makedirs(RUN, exist_ok=True)
     if os.path.isfile(RUN + "/license.json"):
@@ -103,7 +135,9 @@ def main():
     open(RUN + "/server.id", "w").write(sid + "\n")
     for p in ("/etc/ostree/auth.json", "/run/containers/0/auth.json"):
         write_auth(p, token)
-    print("  Activated. Licensed editions: %s.\n  Starting the installer ...\n" % ", ".join(r.get("editions", [])))
+    print("  Activated. Licensed editions: %s.\n" % ", ".join(r.get("editions", [])))
+    make_login()
+    print("  Starting the installer ...\n")
     time.sleep(2)
     return 0
 
