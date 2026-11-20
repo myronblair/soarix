@@ -14,12 +14,20 @@ true
 # fetches the desktop on first boot (the command line is always installed first).
 # The new system also gets its license, server id and registry key, and its hostname.
 %post --nochroot --log=/tmp/soarix-post.log
+# Where the new system is depends on how it was mounted: either the physical disk root
+# (ostree/deploy/...), or the finished system itself mounted at /mnt/sysroot.
+set -- /mnt/sysroot/ostree/deploy/*/deploy/*/etc
+if [ -d "$1" ]; then
+  etcs="$*"; vars=$(ls -d /mnt/sysroot/ostree/deploy/*/var)
+else
+  etcs=/mnt/sysroot/etc; vars=/mnt/sysroot/var
+fi
 if grep -q 'soarix.desktop=1' /proc/cmdline; then
-  for v in /mnt/sysroot/ostree/deploy/*/var; do
+  for v in $vars; do
     mkdir -p "$v/lib/soarix" && touch "$v/lib/soarix/want-desktop"
   done
 fi
-for d in /mnt/sysroot/ostree/deploy/*/deploy/*/etc; do
+for d in $etcs; do
   echo soarix > "$d/hostname"
   if [ -f /run/soarix/license.json ]; then
     mkdir -p "$d/soarix" "$d/ostree"
@@ -35,7 +43,8 @@ rm -rf /mnt/sysroot/.soarix-staging
 # List what was installed (shown in the installer's program log)
 %post --nochroot --log=/tmp/soarix-packages.log
 d=$(ls -d /mnt/sysroot/ostree/deploy/*/deploy/* 2>/dev/null | head -1)
-if [ -n "$d" ] && command -v rpm >/dev/null; then
+[ -n "$d" ] || d=/mnt/sysroot
+if [ -d "$d/usr" ] && command -v rpm >/dev/null; then
   db="$d/usr/lib/sysimage/rpm"; [ -d "$db" ] || db="$d/usr/share/rpm"
   echo "soarix: installed $(rpm --dbpath "$db" -qa 2>/dev/null | wc -l) packages:" | tee /dev/stderr
   rpm --dbpath "$db" -qa --qf '  %{NAME} %{VERSION}\n' 2>/dev/null | sort | tee /dev/stderr

@@ -68,6 +68,11 @@ RUN mkdir -p /etc/systemd/user/pipewire.service.d /etc/systemd/user/pipewire.soc
     printf '[Unit]\nConditionUser=\n' > /etc/systemd/user/pipewire.service.d/allowroot.conf && \
     printf '[Unit]\nConditionUser=\n' > /etc/systemd/user/pipewire.socket.d/allowroot.conf
 
+# The braille-display service retries a missing USB device in a tight loop, flooding the
+# installer with events until the screen freezes (the progress spinner stops, Reboot hangs)
+RUN for u in brltty.service brltty-udev.service brltty@.service; do ln -sf /dev/null /usr/lib/systemd/system/$u; done; \
+    rm -f /usr/lib/udev/rules.d/*brltty*.rules
+
 # Rebuild the boot-time image with live-disc and Anaconda support
 RUN mkdir -p "$(realpath /root)" && \
     kernel=$(kernel-install list --json pretty | jq -r '.[] | select(.has_kernel == true) | .version') && \
