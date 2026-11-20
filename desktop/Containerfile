@@ -10,4 +10,8 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/desktop.sh
+# Finishing touches (session start, app drawer): a small layer of its own, so a tweak here
+# ships as a few kilobytes to installed systems instead of re-sending the whole desktop.
+COPY desktop-extra/ /
+RUN chmod 0755 /usr/bin/soarix-session /usr/bin/soarix-apps
 RUN bootc container lint
