@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Soarix Update
+Comment=Download and install the latest Soarix
+Exec=foot -T "Soarix Update" sh -c 'sudo soarix-update; echo; read -p "Press Enter to close "'
+Icon=soarix
+Categories=System;

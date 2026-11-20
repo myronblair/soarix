@@ -18,7 +18,14 @@ dnf5 -y install \
     blueman \
     gvfs-smb gvfs-mtp gvfs-nfs gvfs-afc \
     system-config-printer cups-pk-helper simple-scan \
-    fprintd-pam
+    fprintd-pam \
+    nwg-drawer flatpak gnome-software
+
+# Everyday apps (anything not available is skipped so one missing package cannot fail the build)
+dnf5 -y install --skip-unavailable \
+    gnome-text-editor loupe gnome-calculator papers gnome-system-monitor \
+    gnome-disk-utility file-roller baobab pavucontrol nm-connection-editor \
+    mpv gnome-clocks gnome-font-viewer gnome-characters
 
 # Login screen: greetd + tuigreet launching niri. The desktop image starts at the login screen.
 systemctl enable greetd.service
@@ -32,11 +39,17 @@ printf '
 spawn-at-startup "swaybg" "-i" "/usr/share/backgrounds/soarix/default.png" "-m" "fill"
 spawn-at-startup "waybar" "-c" "/etc/soarix/waybar/config.jsonc" "-s" "/etc/soarix/waybar/style.css"
 ' >> /etc/niri/config.kdl
+# Mod+D opens the Soarix app drawer
+sed -i 's|"fuzzel"|"soarix-apps"|g' /etc/niri/config.kdl
 
 # One bar only: the packaged Sway-style bar is replaced by the Soarix one, started by niri
 mkdir -p /etc/systemd/user
 ln -sf /dev/null /etc/systemd/user/waybar.service
-chmod 0755 /usr/bin/soarix-power
+chmod 0755 /usr/bin/soarix-power /usr/bin/soarix-apps
+
+# App store: GNOME Software with Flathub (added on the first boot that has a network)
+systemctl enable soarix-flathub.service
+gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 
 # Edition name shown in About / os-release
 sed -i 's/^VARIANT=.*/VARIANT="Strip desktop"/; s/^VARIANT_ID=.*/VARIANT_ID=strip/' /usr/lib/os-release

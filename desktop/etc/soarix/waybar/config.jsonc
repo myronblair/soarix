@@ -3,11 +3,12 @@
     "position": "top",
     "height": 36,
     "spacing": 6,
-    "modules-left": ["custom/apps", "niri/workspaces"],
+    "modules-left": ["custom/apps", "custom/store", "niri/workspaces"],
     "modules-center": ["wlr/taskbar"],
     "modules-right": ["tray", "pulseaudio", "network", "cpu", "memory", "battery", "clock", "custom/power"],
 
-    "custom/apps": { "format": "Apps", "tooltip": false, "on-click": "fuzzel" },
+    "custom/apps": { "format": "Apps", "tooltip": false, "on-click": "soarix-apps" },
+    "custom/store": { "format": "Store", "tooltip-format": "Install and remove apps", "on-click": "gnome-software" },
     "niri/workspaces": { "format": "{index}" },
     "wlr/taskbar": {
         "format": "{title}",

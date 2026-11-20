@@ -1,0 +1,6 @@
+#!/bin/bash
+# soarix-apps - the Soarix app drawer (press again, or Esc, to close it)
+if pgrep -x nwg-drawer >/dev/null; then pkill -x nwg-drawer; exit 0; fi
+mkdir -p "$HOME/.config/nwg-drawer"
+cp -f /etc/soarix/drawer.css "$HOME/.config/nwg-drawer/drawer.css"
+exec nwg-drawer -ovl -c 7 -is 72 -fscol 7 -term foot -fm nautilus -s drawer.css

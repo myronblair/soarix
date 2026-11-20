@@ -1,0 +1,16 @@
+[Unit]
+Description=Add the Flathub app store source
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/soarix/flathub-added
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+ExecStartPost=/usr/bin/mkdir -p /var/lib/soarix
+ExecStartPost=/usr/bin/touch /var/lib/soarix/flathub-added
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

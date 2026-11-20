@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Soarix License
+Comment=Show what this computer is licensed for
+Exec=foot -T "Soarix License" sh -c 'sudo soarix-license status; echo; read -p "Press Enter to close "'
+Icon=soarix
+Categories=System;
