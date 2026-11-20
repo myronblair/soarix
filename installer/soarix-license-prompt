@@ -103,7 +103,8 @@ def main():
     print("\033[2J\033[H")
     print("  Soarix installer")
     print("  ----------------")
-    print("  Soarix needs a license key to download and install.\n")
+    print("  Soarix needs a license key to download and install.")
+    print("  It looks like  SOAR-XXXX-XXXX-XXXX-XXXX  (capital or small letters, dashes optional).\n")
     tries = 0
     while True:
         if not key:
