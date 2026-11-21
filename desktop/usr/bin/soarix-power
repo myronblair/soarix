@@ -1,9 +1,0 @@
-#!/bin/bash
-# soarix-power - small power menu for the desktop (lock, log out, restart, shut down)
-choice=$(printf 'Lock\nLog out\nRestart\nShut down\n' | fuzzel --dmenu --prompt 'Power: ' --lines 4) || exit 0
-case "$choice" in
-  "Lock")      swaylock -f -c 0b1426 ;;
-  "Log out")   niri msg action quit --skip-confirmation ;;
-  "Restart")   systemctl reboot ;;
-  "Shut down") systemctl poweroff ;;
-esac

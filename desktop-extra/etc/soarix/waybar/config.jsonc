@@ -8,7 +8,7 @@
     "modules-right": ["tray", "pulseaudio", "network", "cpu", "memory", "battery", "clock", "custom/power"],
 
     "custom/apps": { "format": "Apps", "tooltip": false, "on-click": "soarix-apps" },
-    "custom/store": { "format": "Store", "tooltip-format": "Install and remove apps", "on-click": "gnome-software" },
+    "custom/store": { "format": "Store", "tooltip-format": "Install and remove apps", "on-click": "soarix-store" },
     "niri/workspaces": { "format": "{index}" },
     "wlr/taskbar": {
         "format": "{title}",

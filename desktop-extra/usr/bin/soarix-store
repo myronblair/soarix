@@ -1,0 +1,13 @@
+#!/bin/sh
+# soarix-store - opens the app store. GNOME Software refuses to run as root, so say so
+# plainly instead of closing without a word.
+if [ "$(id -u)" = 0 ]; then
+    msg="The Store needs a normal user account. Log out (Power menu) and sign in with your own username."
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u critical "Soarix Store" "$msg"
+    else
+        foot -T "Soarix Store" sh -c "echo '$msg'; echo; read -p 'Press Enter to close '"
+    fi
+    exit 0
+fi
+exec gnome-software "$@"

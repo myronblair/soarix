@@ -1,0 +1,20 @@
+/* Soarix power screen: navy glass, large rounded tiles, teal hover, amber for shut down */
+* { background-image: none; font-family: "Noto Sans", sans-serif; }
+window { background-color: rgba(11, 20, 38, 0.92); }
+button {
+    color: #e6edf7; font-size: 26px; font-weight: 600;
+    background-color: #16233d;
+    border: 2px solid #2f5d78; border-radius: 34px;
+    margin: 26px; padding-top: 150px;
+    background-repeat: no-repeat; background-position: center 34%; background-size: 34%;
+    text-decoration-color: transparent;
+}
+button:hover, button:focus { background-color: #1d3a57; border-color: #4fb3c8; color: #ffffff; }
+button:active { background-color: #2f5d78; }
+#shutdown { border-color: #c8963e; }
+#shutdown:hover, #shutdown:focus { background-color: #4a3a1c; border-color: #e0b25a; }
+#lock     { background-image: image(url("/usr/share/wlogout/icons/lock.png")); }
+#logout   { background-image: image(url("/usr/share/wlogout/icons/logout.png")); }
+#suspend  { background-image: image(url("/usr/share/wlogout/icons/suspend.png")); }
+#reboot   { background-image: image(url("/usr/share/wlogout/icons/reboot.png")); }
+#shutdown { background-image: image(url("/usr/share/wlogout/icons/shutdown.png")); }

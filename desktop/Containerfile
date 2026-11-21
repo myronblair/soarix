@@ -12,6 +12,10 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/desktop.sh
 # Finishing touches (session start, app drawer): a small layer of its own, so a tweak here
 # ships as a few kilobytes to installed systems instead of re-sending the whole desktop.
+RUN dnf5 -y install wlogout && dnf5 clean all
 COPY desktop-extra/ /
-RUN chmod 0755 /usr/bin/soarix-session /usr/bin/soarix-apps
+RUN chmod 0755 /usr/bin/soarix-session /usr/bin/soarix-apps /usr/bin/soarix-store /usr/bin/soarix-power
+# Niri's stock config also starts Fedora's default bar; the Soarix bar (started further down
+# the same file) is the only one wanted, so drop the stock line.
+RUN sed -i '/^spawn-at-startup "waybar"$/d' /etc/niri/config.kdl
 RUN bootc container lint
