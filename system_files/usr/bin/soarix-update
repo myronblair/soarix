@@ -129,6 +129,11 @@ def licensed():
 
 
 def cmd_os(restart=False):
+    if os.geteuid() != 0:
+        # The license is kept readable by administrators only, and the download needs one anyway:
+        # ask for the password once and run the whole update as administrator.
+        cmd = privileged([os.path.abspath(sys.argv[0])] + sys.argv[1:])
+        os.execvp(cmd[0], cmd)
     if not licensed():
         return 1
     print("Downloading the newest Soarix ...")

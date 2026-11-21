@@ -1,0 +1,2 @@
+# Keep the login screen clean: no boot status lines or kernel messages drawn over it.
+kargs = ["quiet", "loglevel=3", "systemd.show_status=false", "rd.systemd.show_status=false", "udev.log_level=3", "vt.global_cursor_default=0"]
