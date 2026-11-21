@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 
+FUZZEL = "/etc/xdg/fuzzel/fuzzel.ini"
 CONF = os.path.expanduser("~/.config/soarix/display.json")
 SCALES = [("100%  (default)", 1.0), ("125%", 1.25), ("150%", 1.5), ("175%", 1.75), ("200%  (large, for 4K screens)", 2.0)]
 
@@ -78,14 +79,14 @@ def best_for_vm(o):
 
 
 def pick(prompt, items):
-    r = subprocess.run(["fuzzel", "--dmenu", "-p", prompt + "  ", "-l", str(min(len(items), 14)), "-w", "46"],
+    r = subprocess.run(["fuzzel", "--config", FUZZEL, "--dmenu", "-p", prompt + "  ", "-l", str(min(len(items), 14)), "-w", "46"],
                        input="\n".join(items), capture_output=True, text=True)
     s = r.stdout.strip("\n")
     return s if r.returncode == 0 and s else None
 
 
 def confirm():
-    r = subprocess.run(["timeout", "15", "fuzzel", "--dmenu", "-p", "Keep this setting?  ", "-l", "2", "-w", "46"],
+    r = subprocess.run(["timeout", "15", "fuzzel", "--config", FUZZEL, "--dmenu", "-p", "Keep this setting?  ", "-l", "2", "-w", "46"],
                        input="Keep this setting\nGo back to the old one\n", capture_output=True, text=True)
     return r.stdout.strip() == "Keep this setting"
 
@@ -171,7 +172,7 @@ def menu():
         o = outputs()[name]
         w, h, s = cur(o)
         c = pick("Display  (%d x %d, %d%%)" % (w, h, round(s * 100)),
-                 ["Resolution", "Text and icon size", "Reset to the recommended setting"])
+                 ["Resolution", "Text and icon size", "Reset to the recommended setting", "Close"])
         if c == "Resolution":
             change(name, o, "res")
         elif c == "Text and icon size":
