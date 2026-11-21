@@ -20,4 +20,6 @@ RUN chmod 0755 /usr/bin/soarix-session /usr/bin/soarix-apps /usr/bin/soarix-stor
 RUN sed -i '/^spawn-at-startup "waybar"$/d' /etc/niri/config.kdl
 # Apply the saved screen resolution (or a sensible default in a virtual machine) at login
 RUN echo 'spawn-at-startup "soarix-display" "apply"' >> /etc/niri/config.kdl
+# Keep the app drawer to useful apps: hide terminals nobody opens by hand and the Bluetooth adapter page
+RUN for f in Alacritty foot-server footclient blueman-adapters; do sed -i '0,/^\[Desktop Entry\]/s//[Desktop Entry]\nNoDisplay=true/' /usr/share/applications/$f.desktop; done
 RUN bootc container lint
