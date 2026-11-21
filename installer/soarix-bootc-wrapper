@@ -26,13 +26,15 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
     printf '[storage]\ndriver = "overlay"\ngraphroot = "%s/storage"\nrunroot = "%s/run"\n' "$stage" "$stage" > "$stage/storage.conf"
     export CONTAINERS_STORAGE_CONF="$stage/storage.conf"
     echo "soarix: [2/4] downloading Soarix from the license server (this takes a few minutes)" >&2
-    if ! skopeo copy --authfile /run/containers/0/auth.json "docker://$IMAGE" "containers-storage:localhost/soarix:latest" >&2; then
+    skopeo copy --authfile /run/containers/0/auth.json "docker://$IMAGE" "containers-storage:localhost/soarix:latest" 2>&1 | /usr/libexec/soarix/throttle
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
       echo "soarix: the download failed (license, network or server)" >&2
       rc=1
     fi
   fi
   [ $rc -eq 0 ] && echo "soarix: [3/4] writing the system to the disk" >&2
-  [ $rc -eq 0 ] && { "$REAL" "$@"; rc=$?; }
+  # The installer window shows one message per output line: pass the output on at a pace it can follow
+  [ $rc -eq 0 ] && { "$REAL" "$@" 2>&1 | /usr/libexec/soarix/throttle; rc=${PIPESTATUS[0]}; }
   [ $rc -eq 0 ] && echo "soarix: [4/4] finishing" >&2
   kill $flusher 2>/dev/null
   if [ $rc -ne 0 ]; then

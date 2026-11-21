@@ -40,6 +40,8 @@ COPY installer/iso.yaml /usr/lib/image-builder/bootc/iso.yaml
 
 # Stage the OS image on the new disk (not in RAM) at the moment bootc runs
 COPY installer/soarix-bootc-wrapper /usr/libexec/soarix/bootc-wrapper
+COPY installer/soarix-throttle /usr/libexec/soarix/throttle
+RUN chmod 755 /usr/libexec/soarix/throttle
 RUN mv /usr/bin/bootc /usr/libexec/soarix/bootc.real && \
     install -m 755 /usr/libexec/soarix/bootc-wrapper /usr/bin/bootc
 

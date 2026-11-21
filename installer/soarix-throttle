@@ -1,0 +1,55 @@
+#!/usr/bin/python3
+"""soarix-throttle - pass a command's output on, but at a pace the installer window can follow.
+
+Anaconda turns every line of the install's output into a progress message, and its window makes
+two blocking calls per message. The image download and the system write print hundreds of thousands
+of progress lines, so the window falls behind and looks frozen long after the install is done.
+Here: our own step messages ("soarix: ...") and anything that looks like a problem pass at once;
+everything else is reduced to the latest line, at most once every 2 seconds.
+"""
+import os
+import re
+import select
+import sys
+import time
+
+KEEP = re.compile(r"^soarix:|error|fail|warn|denied|no space|cannot|unable", re.I)
+fd = sys.stdin.fileno()
+buf = b""
+last = None
+sent = 0.0
+
+
+def emit(text):
+    sys.stderr.write(text + "\n")
+    sys.stderr.flush()
+
+
+while True:
+    ready, _, _ = select.select([fd], [], [], 1.0)
+    if ready:
+        data = os.read(fd, 65536)
+        if not data:
+            break
+        buf += data
+        parts = re.split(rb"[\r\n]+", buf)
+        buf = parts.pop()
+        for p in parts:
+            line = p.decode("utf-8", "replace").strip()
+            if not line:
+                continue
+            if KEEP.search(line):
+                emit(line)
+            else:
+                last = line
+    now = time.monotonic()
+    if last is not None and now - sent >= 2.0:
+        emit(last)
+        last = None
+        sent = now
+
+tail = buf.decode("utf-8", "replace").strip()
+if tail:
+    last = tail
+if last:
+    emit(last)
