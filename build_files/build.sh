@@ -49,6 +49,8 @@ systemctl enable soarix-update.timer soarix-firstboot-desktop.service soarix-hos
 # (printer sharing is off in CUPS by default; SSH and file-sharing servers are not enabled).
 systemctl enable bluetooth.service power-profiles-daemon.service upower.service avahi-daemon.service \
     cups.socket chronyd.service firewalld.service fstrim.timer fwupd-refresh.timer 2>/dev/null || true
+# The web console (Cockpit, port 9090) is announced on the login screen, so let it through the firewall
+firewall-offline-cmd --zone=public --add-service=cockpit
 # Compressed RAM swap so small-memory machines stay responsive
 mkdir -p /usr/lib/systemd/zram-generator.conf.d
 printf '[zram0]\nzram-size = min(ram / 2, 4096)\ncompression-algorithm = zstd\n' > /usr/lib/systemd/zram-generator.conf
