@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Soarix Essentials
+Comment=Install recommended everyday apps (office, email, video, photos, passwords)
+Exec=foot -T "Soarix Essentials" soarix-essentials
+Icon=soarix
+Categories=System;Utility;
+Keywords=apps;office;install;libreoffice;thunderbird;vlc;recommended;

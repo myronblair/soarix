@@ -28,7 +28,8 @@ if grep -q 'soarix.desktop=1' /proc/cmdline; then
   done
 fi
 for d in $etcs; do
-  echo soarix > "$d/hostname"
+  # the computer name typed at the license prompt (default: soarix)
+  if [ -s /run/soarix/hostname ]; then cp /run/soarix/hostname "$d/hostname"; else echo soarix > "$d/hostname"; fi
   if [ -f /run/soarix/license.json ]; then
     mkdir -p "$d/soarix" "$d/ostree"
     install -m 600 /run/soarix/license.json "$d/soarix/license.json"

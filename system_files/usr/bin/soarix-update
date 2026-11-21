@@ -175,6 +175,10 @@ def main(a):
         print(__doc__)
         return 0
     c = a[0]
+    if c == "status" and os.geteuid() != 0:
+        # Reading the installed version needs administrator rights: ask for the password once
+        cmd = privileged([os.path.abspath(sys.argv[0])] + sys.argv[1:])
+        os.execvp(cmd[0], cmd)
     if c == "status":
         cmd_status()
     elif c == "check":

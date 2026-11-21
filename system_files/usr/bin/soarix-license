@@ -213,6 +213,10 @@ def main(a):
         print(__doc__)
         return 0
     c = a[0]
+    if c in ("status", "check") and os.geteuid() != 0:
+        # The license is kept readable by administrators only: ask for the password and run as administrator
+        cmd = ["sudo", os.path.abspath(sys.argv[0])] + sys.argv[1:]
+        os.execvp(cmd[0], cmd)
     if c == "activate":
         return cmd_activate(a[1:])
     if c == "check":

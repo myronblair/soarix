@@ -1,0 +1,54 @@
+#!/bin/bash
+# soarix-essentials - install a recommended set of everyday apps from Flathub.
+# They come from the app store, so the Soarix image stays small and you choose what you want.
+APPS=(
+  "org.libreoffice.LibreOffice|LibreOffice|Word processor, spreadsheets, presentations (opens Microsoft Office files)"
+  "org.mozilla.Thunderbird|Thunderbird|Email, calendar and contacts"
+  "org.videolan.VLC|VLC|Plays almost any audio or video file"
+  "org.gimp.GIMP|GIMP|Photo editing and drawing"
+  "com.bitwarden.desktop|Bitwarden|Password manager"
+  "com.usebottles.bottles|Bottles|Run Windows programs on Soarix"
+  "com.github.tchx84.Flatseal|Flatseal|See and change what each app is allowed to do"
+)
+clear
+echo
+echo "  Soarix Essentials"
+echo "  -----------------"
+echo "  Recommended apps, installed from Flathub (about 2 GB in total):"
+echo
+i=1
+for e in "${APPS[@]}"; do
+  IFS='|' read -r id name desc <<< "$e"
+  printf "   %d) %-12s %s\n" "$i" "$name" "$desc"
+  i=$((i+1))
+done
+echo
+echo "  Press Enter to install everything, or type the numbers you want (for example: 1 3 5)."
+echo "  Type q to quit."
+printf "  > "
+read -r choice
+[ "$choice" = "q" ] && exit 0
+ids=()
+if [ -z "$choice" ]; then
+  for e in "${APPS[@]}"; do ids+=("${e%%|*}"); done
+else
+  for n in $choice; do
+    [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#APPS[@]}" ] && ids+=("${APPS[$((n-1))]%%|*}")
+  done
+fi
+if [ "${#ids[@]}" -eq 0 ]; then
+  echo "  Nothing selected."
+  read -rp "  Press Enter to close "
+  exit 0
+fi
+echo
+echo "  Installing ${#ids[@]} app(s) ... this can take a while."
+echo
+if flatpak install -y --noninteractive flathub "${ids[@]}"; then
+  echo
+  echo "  Done. The new apps are in the app drawer."
+else
+  echo
+  echo "  Something did not install. Check the network and try again."
+fi
+read -rp "  Press Enter to close "

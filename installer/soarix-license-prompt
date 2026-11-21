@@ -62,6 +62,22 @@ def write_auth(path, token):
         json.dump(a, f)
 
 
+def wifi_setup():
+    """Let the person join a Wi-Fi network (the installer has no desktop yet, so use the text menu)."""
+    import subprocess
+    print("\033[2J\033[H")
+    print("  Wi-Fi setup: pick 'Activate a connection', choose your network and type its password.")
+    print("  When you are done, leave the menu to come back here.\n")
+    time.sleep(2)
+    try:
+        subprocess.run(["nmtui", "connect"])
+    except OSError:
+        print("  The Wi-Fi menu is not available on this installer.")
+    print("\033[2J\033[H")
+    print("  Soarix installer")
+    print("  ----------------\n")
+
+
 RESERVED = {"root", "daemon", "bin", "sys", "adm", "nobody", "admin", "guest", "sshd", "install"}
 
 
@@ -87,6 +103,13 @@ def make_login():
             print("  The two passwords did not match.\n")
             continue
         break
+    while True:
+        host = (input("  Computer name (press Enter for soarix): ").strip().lower()) or "soarix"
+        if re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?", host):
+            break
+        print("  Use letters, numbers and - only (no spaces).\n")
+    with open(RUN + "/hostname", "w") as f:
+        f.write(host + "\n")
     h = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=p1 + "\n", capture_output=True, text=True).stdout.strip()
     with open(RUN + "/user.ks", "w") as f:
         f.write("rootpw --lock\nuser --name=%s --groups=wheel --iscrypted --password=%s\n" % (name, h))
@@ -117,8 +140,11 @@ def main():
         print("  Checking the key ...")
         r = activate(key, sid)
         if r is None:
-            print("  Could not reach the license server. Check the network cable or Wi-Fi.")
-            ans = input("  Press Enter to try again, or type the key again: ").strip() if sys.stdin.isatty() else ""
+            print("  Could not reach the license server. Check the network cable, or join Wi-Fi.")
+            ans = input("  Press Enter to try again, W to set up Wi-Fi, or type the key again: ").strip() if sys.stdin.isatty() else ""
+            if ans.lower() == "w":
+                wifi_setup()
+                ans = ""
             key = ans or key
             tries += 1
             if tries > 20:
