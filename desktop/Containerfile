@@ -14,8 +14,10 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # ships as a few kilobytes to installed systems instead of re-sending the whole desktop.
 RUN dnf5 -y install wlogout && dnf5 clean all
 COPY desktop-extra/ /
-RUN chmod 0755 /usr/bin/soarix-session /usr/bin/soarix-apps /usr/bin/soarix-store /usr/bin/soarix-power
+RUN chmod 0755 /usr/bin/soarix-session /usr/bin/soarix-apps /usr/bin/soarix-store /usr/bin/soarix-power /usr/bin/soarix-display
 # Niri's stock config also starts Fedora's default bar; the Soarix bar (started further down
 # the same file) is the only one wanted, so drop the stock line.
 RUN sed -i '/^spawn-at-startup "waybar"$/d' /etc/niri/config.kdl
+# Apply the saved screen resolution (or a sensible default in a virtual machine) at login
+RUN echo 'spawn-at-startup "soarix-display" "apply"' >> /etc/niri/config.kdl
 RUN bootc container lint

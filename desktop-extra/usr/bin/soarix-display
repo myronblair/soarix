@@ -1,0 +1,186 @@
+#!/usr/bin/python3
+"""soarix-display - screen resolution and size of text/icons for the Soarix desktop.
+
+  soarix-display          open the Display Settings menu
+  soarix-display apply    at login: apply the saved choice, or a sensible default in a virtual machine
+
+A new setting is kept only after you confirm it. If the screen goes blank or unreadable, wait
+15 seconds and the previous setting comes back by itself.
+"""
+import json
+import os
+import subprocess
+import sys
+
+CONF = os.path.expanduser("~/.config/soarix/display.json")
+SCALES = [("100%  (default)", 1.0), ("125%", 1.25), ("150%", 1.5), ("175%", 1.75), ("200%  (large, for 4K screens)", 2.0)]
+
+
+def niri(*args):
+    return subprocess.run(["niri", "msg", *args], capture_output=True, text=True)
+
+
+def outputs():
+    r = niri("--json", "outputs")
+    try:
+        return json.loads(r.stdout) if r.returncode == 0 else {}
+    except ValueError:
+        return {}
+
+
+def in_vm():
+    return subprocess.run(["systemd-detect-virt", "-q"], capture_output=True).returncode == 0
+
+
+def notify(msg):
+    subprocess.run(["notify-send", "-a", "Display Settings", "Display Settings", msg], capture_output=True)
+
+
+def load():
+    try:
+        return json.load(open(CONF))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(d):
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    with open(CONF, "w") as f:
+        json.dump(d, f)
+
+
+def cur(o):
+    """(width, height, scale) now in use"""
+    i = o.get("current_mode")
+    m = o["modes"][i] if i is not None else o["modes"][0]
+    return m["width"], m["height"], float((o.get("logical") or {}).get("scale", 1.0))
+
+
+def resolutions(o):
+    seen = {}
+    for m in o["modes"]:
+        seen[(m["width"], m["height"])] = True
+    return sorted(seen, key=lambda r: (r[0] * r[1], r[0]), reverse=True)
+
+
+def set_mode(name, w, h):
+    return niri("output", name, "mode", "%dx%d" % (w, h)).returncode == 0
+
+
+def set_scale(name, s):
+    return niri("output", name, "scale", ("%g" % s)).returncode == 0
+
+
+def best_for_vm(o):
+    """A virtual screen often offers 4K, which is slow to draw without a GPU: prefer 1920x1080."""
+    fit = [r for r in resolutions(o) if r[0] <= 1920 and r[1] <= 1080]
+    return fit[0] if fit else None
+
+
+def pick(prompt, items):
+    r = subprocess.run(["fuzzel", "--dmenu", "-p", prompt + "  ", "-l", str(min(len(items), 14)), "-w", "46"],
+                       input="\n".join(items), capture_output=True, text=True)
+    s = r.stdout.strip("\n")
+    return s if r.returncode == 0 and s else None
+
+
+def confirm():
+    r = subprocess.run(["timeout", "15", "fuzzel", "--dmenu", "-p", "Keep this setting?  ", "-l", "2", "-w", "46"],
+                       input="Keep this setting\nGo back to the old one\n", capture_output=True, text=True)
+    return r.stdout.strip() == "Keep this setting"
+
+
+def apply_saved():
+    conf, outs = load(), outputs()
+    for name, o in outs.items():
+        s = conf.get(name)
+        if s:
+            if s.get("size"):
+                set_mode(name, *s["size"])
+            if s.get("scale"):
+                set_scale(name, s["scale"])
+        elif in_vm():
+            w, h, _ = cur(o)
+            if w > 2560 or h > 1440:
+                best = best_for_vm(o)
+                if best:
+                    set_mode(name, *best)
+    return 0
+
+
+def change(name, o, what):
+    w0, h0, s0 = cur(o)
+    if what == "res":
+        items = []
+        for r in resolutions(o):
+            tag = "   (now)" if r == (w0, h0) else ""
+            items.append("%d x %d%s" % (r[0], r[1], tag))
+        c = pick("Resolution", items)
+        if not c:
+            return
+        w, h = [int(x) for x in c.split("(")[0].replace("x", " ").split()]
+        ok = set_mode(name, w, h)
+    else:
+        c = pick("Text and icon size", [t for t, _ in SCALES])
+        if not c:
+            return
+        ok = set_scale(name, dict(SCALES)[c])
+    if not ok:
+        notify("That setting was not accepted by the screen.")
+        return
+    if confirm():
+        conf = load()
+        n1 = outputs().get(name)
+        if n1:
+            w, h, s = cur(n1)
+            conf[name] = {"size": [w, h], "scale": s}
+            save(conf)
+        notify("Saved. It will be used every time you sign in.")
+    else:
+        set_mode(name, w0, h0)
+        set_scale(name, s0)
+
+
+def reset(outs):
+    try:
+        os.remove(CONF)
+    except OSError:
+        pass
+    for name, o in outs.items():
+        pref = [m for m in o["modes"] if m.get("is_preferred")]
+        target = best_for_vm(o) if in_vm() else ((pref[0]["width"], pref[0]["height"]) if pref else None)
+        if target:
+            set_mode(name, *target)
+        set_scale(name, 1.0)
+    notify("Display settings reset.")
+
+
+def menu():
+    outs = outputs()
+    if not outs:
+        notify("Could not read the screen list. Is the desktop running?")
+        return 1
+    name = next(iter(outs))
+    if len(outs) > 1:
+        label = {"%s  (%s)" % (n, " ".join(filter(None, [o.get("make"), o.get("model")]))): n for n, o in outs.items()}
+        c = pick("Screen", list(label))
+        if not c:
+            return 0
+        name = label[c]
+    while True:
+        o = outputs()[name]
+        w, h, s = cur(o)
+        c = pick("Display  (%d x %d, %d%%)" % (w, h, round(s * 100)),
+                 ["Resolution", "Text and icon size", "Reset to the recommended setting"])
+        if c == "Resolution":
+            change(name, o, "res")
+        elif c == "Text and icon size":
+            change(name, o, "scale")
+        elif c and c.startswith("Reset"):
+            reset(outputs())
+        else:
+            return 0
+
+
+if __name__ == "__main__":
+    sys.exit(apply_saved() if sys.argv[1:] == ["apply"] else menu())

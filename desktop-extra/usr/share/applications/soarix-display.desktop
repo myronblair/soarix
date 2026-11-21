@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Display Settings
+Comment=Screen resolution and size of text and icons
+Exec=soarix-display
+Icon=preferences-desktop-display
+Categories=Settings;System;
+Keywords=screen;monitor;resolution;scale;display;
