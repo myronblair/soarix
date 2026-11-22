@@ -75,12 +75,12 @@ def stage(outdir):
             open(dst, "wb").write(data)
             if any(rel.startswith(x + "/") for x in m["executable_folders"]):
                 execs.append("/" + rel)
-        open(os.path.join(d, "exec.txt"), "w").write("\n".join(execs) + "\n")
-        open(os.path.join(d, "packages.txt"), "w").write(" ".join(packages_for(m, ed)) + "\n")
+        open(os.path.join(d, "exec.txt"), "w", newline="\n").write("\n".join(execs) + "\n")
+        open(os.path.join(d, "packages.txt"), "w", newline="\n").write(" ".join(packages_for(m, ed)) + "\n")
         after = []
         for e in ancestors(m, ed)[::-1]:
             after += m.get("after_install", {}).get(e, [])
-        open(os.path.join(d, "after.txt"), "w").write("\n".join(after) + "\n")
+        open(os.path.join(d, "after.txt"), "w", newline="\n").write("\n".join(after) + "\n")
         print("%-8s %3d files (%d programs), %d packages" % (ed, len(files), len(execs), len(packages_for(m, ed))))
 
 
