@@ -1,5 +1,15 @@
 #!/bin/bash
-# If the installer was told to include the desktop, fetch it once the network is up.
+# If the installer was told to include the desktop or the server edition, fetch it once the network is up.
+if [ -e /var/lib/soarix/want-server ]; then
+  grep -q '^VARIANT_ID=.*server' /usr/lib/os-release && { rm -f /var/lib/soarix/want-server; exit 0; }
+  if /usr/bin/soarix-edition switch server; then
+    rm -f /var/lib/soarix/want-server /var/lib/soarix/want-desktop
+    systemctl reboot
+  else
+    echo "The server edition download did not finish; run: sudo soarix-edition switch server" > /etc/motd.d/20-soarix-desktop
+  fi
+  exit 0
+fi
 [ -e /var/lib/soarix/want-desktop ] || exit 0
 rpm -q niri >/dev/null 2>&1 && { rm -f /var/lib/soarix/want-desktop; exit 0; }
 /usr/bin/soarix-desktop on || echo "Desktop download did not finish; run: sudo soarix-desktop on" > /etc/motd.d/20-soarix-desktop

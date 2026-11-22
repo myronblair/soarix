@@ -1,6 +1,6 @@
 [Unit]
-Description=Fetch the Soarix desktop if the installer asked for it
-ConditionPathExists=/var/lib/soarix/want-desktop
+Description=Fetch the Soarix desktop or server edition if the installer asked for it
+ConditionPathExistsGlob=/var/lib/soarix/want-*
 Wants=network-online.target
 After=network-online.target
 

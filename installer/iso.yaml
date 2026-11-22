@@ -8,3 +8,6 @@ grub2:
     - name: "Install Soarix 0.3.3  with desktop"
       linux: ${kernelpath} ${root} inst.graphical soarix.desktop=1
       initrd: ${initrdpath}
+    - name: "Install Soarix 0.3.3  as a server"
+      linux: ${kernelpath} ${root} inst.graphical soarix.server=1
+      initrd: ${initrdpath}

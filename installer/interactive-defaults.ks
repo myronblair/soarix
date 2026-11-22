@@ -27,6 +27,12 @@ if grep -q 'soarix.desktop=1' /proc/cmdline; then
     mkdir -p "$v/lib/soarix" && touch "$v/lib/soarix/want-desktop"
   done
 fi
+# "Install Soarix as a server" was chosen: the server edition is fetched on first boot (needs a license that includes it)
+if grep -q 'soarix.server=1' /proc/cmdline; then
+  for v in $vars; do
+    mkdir -p "$v/lib/soarix" && touch "$v/lib/soarix/want-server"
+  done
+fi
 for d in $etcs; do
   # the computer name typed at the license prompt (default: soarix)
   if [ -s /run/soarix/hostname ]; then cp /run/soarix/hostname "$d/hostname"; else echo soarix > "$d/hostname"; fi
