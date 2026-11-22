@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 FUZZEL = "/etc/xdg/fuzzel/fuzzel.ini"
 CONF = os.path.expanduser("~/.config/soarix/display.json")
@@ -92,7 +93,14 @@ def confirm():
 
 
 def apply_saved():
-    conf, outs = load(), outputs()
+    conf = load()
+    # at login the screen may not be listed yet: wait for it (up to 15 seconds)
+    outs = outputs()
+    for _ in range(15):
+        if outs:
+            break
+        time.sleep(1)
+        outs = outputs()
     for name, o in outs.items():
         s = conf.get(name)
         if s:

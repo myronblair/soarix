@@ -1,0 +1,9 @@
+#!/bin/bash
+# soarix-window - open one of the Soarix tools in a terminal window (used by the app drawer,
+# whose launcher lines cannot contain quotes).
+case "$1" in
+  update)     exec foot -T "Soarix Update" sh -c 'sudo soarix-update; echo; read -rp "Press Enter to close "' ;;
+  license)    exec foot -T "Soarix License" sh -c 'sudo soarix-license status; echo; read -rp "Press Enter to close "' ;;
+  essentials) exec foot -T "Soarix Essentials" soarix-essentials ;;
+  *) echo "usage: soarix-window update|license|essentials" >&2; exit 2 ;;
+esac

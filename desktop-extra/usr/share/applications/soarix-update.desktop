@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Soarix Update
+Comment=Download and install the latest Soarix
+Exec=soarix-window update
+Icon=soarix
+Categories=System;
