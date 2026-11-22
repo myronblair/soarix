@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""soarix-appearance - wallpaper, light or dark theme, and accent colour.
+"""soarix-appearance - wallpaper, light or dark theme, and accent color.
 
   soarix-appearance          open the Appearance menu
   soarix-appearance apply    at login: apply the saved choices (or the defaults)
-  soarix-appearance bar      start the top bar with the chosen accent colour (used at login)
+  soarix-appearance bar      start the top bar with the chosen accent color (used at login)
 """
 import glob
 import json
@@ -26,7 +26,7 @@ NAMES = {
     "plain.png": "Plain, no text",
     "light.png": "Light",
 }
-# name, bar colour, GNOME accent name (for apps that follow it)
+# name, bar color, GNOME accent name (for apps that follow it)
 ACCENTS = [("Teal  (default)", "4fb3c8", "teal"), ("Blue", "5b8def", "blue"), ("Green", "5fc27a", "green"),
            ("Yellow", "e0c050", "yellow"), ("Orange", "e08a3c", "orange"), ("Red", "e0605a", "red"),
            ("Pink", "e07aa8", "pink"), ("Purple", "a07be0", "purple"), ("Slate", "8ea2c4", "slate")]
@@ -100,7 +100,7 @@ def set_theme(conf):
 def bar_css(conf):
     hexv = accent_of(conf)[0]
     css = open(BAR_CSS).read()
-    css += ("\n/* accent colour chosen in Appearance */\n"
+    css += ("\n/* accent color chosen in Appearance */\n"
             "#custom-store, #workspaces button.active, #workspaces button.focused { background: #%s; }\n"
             "#taskbar button.active { border-bottom: 3px solid #%s; }\n" % (hexv, hexv))
     os.makedirs(os.path.dirname(BAR_USER_CSS), exist_ok=True)
@@ -171,7 +171,7 @@ def choose_accent():
     conf = load()
     now = accent_of(conf)[1]
     items = [label + ("   (now)" if g == now and "(default)" not in label else "") for label, _, g in ACCENTS] + ["Back"]
-    c = pick("Accent colour", items)
+    c = pick("Accent color", items)
     if not c or c == "Back":
         return
     for label, _, g in ACCENTS:
@@ -180,7 +180,7 @@ def choose_accent():
     save(conf)
     set_theme(conf)
     restart_bar(conf)
-    notify("Accent colour changed.")
+    notify("Accent color changed.")
 
 
 def reset():
@@ -201,7 +201,7 @@ def menu():
         theme = "Light" if conf.get("theme") == "light" else "Dark"
         wp = NAMES.get(os.path.basename(wallpaper_path(conf)), os.path.basename(wallpaper_path(conf)))
         accent = next(l.split()[0] for l, _, g in ACCENTS if g == accent_of(conf)[1])
-        c = pick("Appearance", ["Wallpaper:  " + wp, "Theme:  " + theme, "Accent colour:  " + accent,
+        c = pick("Appearance", ["Wallpaper:  " + wp, "Theme:  " + theme, "Accent color:  " + accent,
                                 "Reset to the Soarix defaults", "Close"])
         if c and c.startswith("Wallpaper"):
             choose_wallpaper()

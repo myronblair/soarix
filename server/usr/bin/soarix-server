@@ -70,7 +70,7 @@ def main(a):
         for g in pick(a[1:]):
             for u in GROUPS[g][1]:
                 if sh(["systemctl", "enable", "--now", u]).returncode != 0:
-                    print("  could not start %s (it may need first-time setup, e.g. a database initialisation)" % u)
+                    print("  could not start %s (it may need first-time setup, e.g. a database initialization)" % u)
             print("enabled", g)
     elif a[0] == "disable":
         need_root()

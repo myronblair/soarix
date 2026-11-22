@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Appearance
-Comment=Wallpaper, light or dark theme, and accent colour
+Comment=Wallpaper, light or dark theme, and accent color
 Exec=soarix-appearance
 Icon=preferences-desktop-theme
 Categories=Settings;System;
-Keywords=wallpaper;theme;colour;color;dark;light;accent;background;appearance
+Keywords=wallpaper;theme;color;colour;dark;light;accent;background;appearance
