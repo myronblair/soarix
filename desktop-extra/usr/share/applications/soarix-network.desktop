@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Network
+Comment=Connections, Wi-Fi and network tools
+Exec=soarix-window network
+Icon=soarix-network
+Categories=System;Settings;Network;
+Keywords=network;wifi;wi-fi;ethernet;ip;dns;ping;traceroute;vpn;internet;speed;

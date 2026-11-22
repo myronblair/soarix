@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Network Devices
+Comment=Find computers, printers and other devices on your network
+Exec=soarix-window devices
+Icon=soarix-devices
+Categories=System;Settings;Network;
+Keywords=network;devices;discovery;scan;lan;nmap;ip;mac;hosts;find;

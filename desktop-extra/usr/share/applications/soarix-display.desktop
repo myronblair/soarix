@@ -2,7 +2,7 @@
 Type=Application
 Name=Display Settings
 Comment=Screen size, lock screen and screen saver
-Exec=soarix-display
+Exec=soarix-window display
 Icon=preferences-desktop-display
 Categories=Settings;System;
 Keywords=screen;monitor;resolution;scale;display;lock;screensaver;screen saver;timeout;sleep;

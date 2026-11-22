@@ -2,7 +2,7 @@
 Type=Application
 Name=Appearance
 Comment=Wallpaper, light or dark theme, and accent color
-Exec=soarix-appearance
+Exec=soarix-window appearance
 Icon=soarix-appearance
 Categories=Settings;System;
 Keywords=wallpaper;theme;color;colour;dark;light;accent;background;appearance

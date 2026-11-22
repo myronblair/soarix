@@ -5,6 +5,7 @@
   soarix-display apply    at login: apply the saved choice, or a sensible default in a virtual machine
   soarix-display lock     lock the screen now
   soarix-display idle     at login: lock and turn the screen off after the chosen times
+  soarix-display state | mode WxH | scale N | keep | lock-after N | off-after N | reset   (for the Display Settings window)
 
 A new setting is kept only after you confirm it. If the screen goes blank or unreadable, wait
 15 seconds and the previous setting comes back by itself.
@@ -301,8 +302,63 @@ def lock():
     return 0
 
 
+def first_output():
+    outs = outputs()
+    if not outs:
+        return None, None
+    name = next(iter(outs))
+    return name, outs[name]
+
+
+def state_json():
+    name, o = first_output()
+    d = desk()
+    out = {"output": name, "lock": d["lock"], "off": d["off"], "minutes": MINUTES,
+           "scales": [[t, v] for t, v in SCALES]}
+    if o:
+        w, h, s = cur(o)
+        out.update({"width": w, "height": h, "scale": s, "resolutions": [list(r) for r in resolutions(o)]})
+    return out
+
+
+def save_current():
+    name, o = first_output()
+    if not o:
+        return 1
+    w, h, s = cur(o)
+    conf = load()
+    conf[name] = {"size": [w, h], "scale": s}
+    save(conf)
+    return 0
+
+
+def set_minutes(key, value):
+    conf = load()
+    conf.setdefault("_desktop", {})[key] = int(value)
+    save(conf)
+    restart_idle()
+    return 0
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
+    if a == ["state"]:
+        print(json.dumps(state_json()))
+        sys.exit(0)
+    if len(a) == 2 and a[0] == "mode" and a[1].count("x") == 1:
+        name, o = first_output()
+        w, h = [int(x) for x in a[1].split("x")]
+        sys.exit(0 if name and set_mode(name, w, h) else 1)
+    if len(a) == 2 and a[0] == "scale":
+        name, o = first_output()
+        sys.exit(0 if name and set_scale(name, float(a[1])) else 1)
+    if a == ["keep"]:
+        sys.exit(save_current())
+    if len(a) == 2 and a[0] in ("lock-after", "off-after") and a[1].isdigit():
+        sys.exit(set_minutes("lock" if a[0] == "lock-after" else "off", a[1]))
+    if a == ["reset"]:
+        reset(outputs())
+        sys.exit(0)
     if a == ["apply"]:
         sys.exit(apply_saved())
     if a == ["lock"]:

@@ -1,0 +1,99 @@
+#!/usr/bin/python3
+"""soarix-admin-mode - how often Soarix asks for your administrator password.
+
+  soarix-admin-mode status                 the current setting
+  sudo soarix-admin-mode set default       ask again after 15 minutes (the normal setting)
+  sudo soarix-admin-mode set hour          ask again after 1 hour
+  sudo soarix-admin-mode set day           ask again after 8 hours
+  sudo soarix-admin-mode set restart       ask once, then not again until the computer restarts
+  soarix-admin-mode end                    forget the password now (ask again next time)
+
+The choice applies to you everywhere: the Soarix windows, the terminal, and the web console.
+While a longer setting is active, any program running as your user can use administrator rights without
+asking, so keep it on 'default' on a computer other people use, and use 'end' when you step away.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+DROP = "/etc/sudoers.d/90-soarix-admin-mode"
+INFO = "/etc/soarix/admin-mode"  # the plain setting name, readable by everyone
+CHOICES = {
+    "default": ("15 minutes (normal)", None),
+    "hour": ("1 hour", "60"),
+    "day": ("8 hours", "480"),
+    "restart": ("only after a restart", "-1"),
+}
+
+
+def current():
+    try:
+        v = open(INFO).read().strip()
+        return v if v in CHOICES else "default"
+    except OSError:
+        return "default"
+
+
+def as_root():
+    if os.geteuid() != 0:
+        if shutil.which("sudo"):
+            os.execvp("sudo", ["sudo"] + sys.argv)
+        print("Run with sudo:  sudo soarix-admin-mode %s" % " ".join(sys.argv[1:]))
+        sys.exit(1)
+
+
+def set_mode(name):
+    as_root()
+    user = os.environ.get("SUDO_USER") or ""
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
+        print("Run this with sudo from your own account (it needs to know whose password to remember).")
+        return 1
+    label, minutes = CHOICES[name]
+    if minutes is None:
+        try:
+            os.remove(DROP)
+        except OSError:
+            pass
+    else:
+        text = ("# Written by soarix-admin-mode. Remove this file (or run: sudo soarix-admin-mode set default) to go back.\n"
+                "Defaults:%s timestamp_timeout=%s\nDefaults:%s timestamp_type=global\n" % (user, minutes, user))
+        fd, tmp = tempfile.mkstemp(dir="/etc/sudoers.d", prefix=".soarix-")
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.chmod(tmp, 0o440)
+        if subprocess.run(["visudo", "-cf", tmp], capture_output=True).returncode != 0:
+            os.remove(tmp)
+            print("That setting was not accepted by the system, so nothing was changed.")
+            return 1
+        os.replace(tmp, DROP)
+    os.makedirs(os.path.dirname(INFO), exist_ok=True)
+    with open(INFO, "w") as f:
+        f.write(name + "\n")
+    os.chmod(INFO, 0o644)
+    subprocess.run(["sudo", "-K"], capture_output=True)  # start fresh: the next password counts from now
+    print("Done. Soarix will ask for your password %s." % ("again after " + label if name != "restart" else "once, then not again until you restart"))
+    return 0
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    if a[0] == "status":
+        print("Password asked again: %s" % CHOICES[current()][0])
+        return 0
+    if a[0] == "end":
+        subprocess.run(["sudo", "-K"])
+        print("The password is forgotten. Soarix will ask again the next time it needs it.")
+        return 0
+    if a[0] == "set" and len(a) > 1 and a[1] in CHOICES:
+        return set_mode(a[1])
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -22,7 +22,7 @@ dnf5 -y install \
 
 # Everything the NovaCPX hosting panel (and any hosting setup) can use, installed but switched off.
 # Anything Fedora does not ship is skipped, so one missing package cannot fail the build.
-dnf5 -y install --skip-unavailable \
+dnf5 -y install --skip-unavailable --exclude=pax \
     moby-engine docker-compose containerd \
     clamav clamd clamav-freshclam clamav-milter \
     roundcubemail pgadmin4 \

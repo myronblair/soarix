@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Users
+Comment=Add people, change passwords and choose who is an administrator
+Exec=soarix-window users
+Icon=soarix-users
+Categories=System;Settings;
+Keywords=users;accounts;password;administrator;people;login;sudo;

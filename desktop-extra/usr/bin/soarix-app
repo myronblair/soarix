@@ -7,6 +7,12 @@
   soarix-app datetime     time zone, 12 or 24 hour clock, automatic time
   soarix-app sysinfo      about this computer, switch edition, upgrade the license
   soarix-app services     (Server edition) turn the hosting services on and off
+  soarix-app appearance   wallpaper, theme, accent color
+  soarix-app display      screen size, text size, lock screen, screen saver
+  soarix-app network      connections, Wi-Fi, network tools
+  soarix-app printers     add printers, default printer, test page
+  soarix-app devices      find the devices on your network
+  soarix-app users        add people, passwords, administrators
 
 Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
 password in a Soarix box (it is used only for that task and is never stored).
@@ -14,6 +20,7 @@ password in a Soarix box (it is used only for that task and is never stored).
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -83,6 +90,20 @@ check:checked { background-image: none; background-color: #ACC; border-color: #A
 .approw:hover { border-color: #3a4f7a; }
 .tag { background: rgba(95,194,122,0.16); color: #5fc27a; border-radius: 8px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
 expander title { color: #8ea2c4; }
+button.thumb { padding: 8px; background-color: #0f1930; border: 2px solid #1d2b49; border-radius: 12px; }
+button.thumb:hover { border-color: #3a4f7a; }
+button.thumb.selected { border-color: #ACC; background-color: #16294a; }
+button.swatch { min-width: 44px; min-height: 44px; padding: 0; border-radius: 22px; border: 3px solid #0b1426; color: #0b1426; font-weight: 700; }
+button.swatch:hover { border-color: #e6edf7; }
+.sw-teal { background-color: #4fb3c8; }
+.sw-blue { background-color: #5b8def; }
+.sw-green { background-color: #5fc27a; }
+.sw-yellow { background-color: #e0c050; }
+.sw-orange { background-color: #e08a3c; }
+.sw-red { background-color: #e0605a; }
+.sw-pink { background-color: #e07aa8; }
+.sw-purple { background-color: #a07be0; }
+.sw-slate { background-color: #8ea2c4; }
 .tag.tag-off { background: rgba(142,162,196,0.14); color: #8ea2c4; }
 switch { background-image: none; background-color: #1b2a4a; border: 1px solid #2f4268; border-radius: 14px; }
 switch:checked { background-color: #ACC; border-color: #ACC; }
@@ -128,9 +149,11 @@ class Runner:
     def __init__(self, win):
         self.win = win
 
-    def run(self, cmd, on_line, on_done, admin=False, password=None):
+    def run(self, cmd, on_line, on_done, admin=False, password=None, extra_stdin=None):
         def work():
             full = (["sudo", "-S", "-p", ""] + cmd) if admin else cmd
+            if admin and password == "":
+                full = ["sudo", "-n"] + cmd  # the system remembers the password: never wait for one
             try:
                 p = subprocess.Popen(full, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      env=dict(os.environ, LC_ALL="C.UTF-8", TERM="dumb"))
@@ -138,17 +161,23 @@ class Runner:
                 GLib.idle_add(on_done, 127, str(e))
                 return
             try:
-                if admin:
-                    p.stdin.write(((password or "") + "\n").encode())
+                if admin and password:
+                    p.stdin.write((password + "\n").encode())
+                if extra_stdin:
+                    p.stdin.write(extra_stdin.encode())
                 p.stdin.close()
             except OSError:
                 pass
             buf = ""
+            expired = False
             while True:
                 chunk = os.read(p.stdout.fileno(), 4096)
                 if not chunk:
                     break
-                buf += ANSI.sub("", chunk.decode("utf-8", "replace"))
+                text = ANSI.sub("", chunk.decode("utf-8", "replace"))
+                if "password is required" in text or "incorrect password" in text:
+                    expired = True
+                buf += text
                 parts = re.split(r"[\r\n]", buf)
                 buf = parts.pop()
                 for ln in parts:
@@ -157,6 +186,8 @@ class Runner:
                 if buf.strip():
                     GLib.idle_add(on_line, buf.strip(), True)
             rc = p.wait()
+            if expired and admin:
+                GLib.idle_add(setattr, self.win, "password", None)
             GLib.idle_add(on_done, rc, "")
         threading.Thread(target=work, daemon=True).start()
 
@@ -255,6 +286,13 @@ class Page(Gtk.ApplicationWindow):
         if self.password is not None:
             then()
             return
+        try:  # the system may already remember the password (see Administrator password in System Information)
+            if subprocess.run(["sudo", "-n", "-v"], capture_output=True, timeout=10).returncode == 0:
+                self.password = ""
+                then()
+                return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
         def ok(pw):
             self.password = pw
@@ -788,6 +826,31 @@ class SysInfoPage(Page):
             col.append(st)
             self.show_start_mode()
 
+
+        adm = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        adm.append(label("Administrator password", "heading"))
+        adm.append(label("Choose how often Soarix asks for your password. \"Only after a restart\" means you type it once after the computer "
+                         "starts and not again until the next restart. While a longer choice is on, any program running as you can use "
+                         "administrator rights without asking, so keep the normal setting on a shared computer.", "sub", wrap=True))
+        self.adm_choices = [("default", "Every 15 minutes (normal)"), ("hour", "Every hour"), ("day", "Every 8 hours"),
+                            ("restart", "Only after a restart")]
+        self.adm_dd = Gtk.DropDown.new_from_strings([t for _, t in self.adm_choices])
+        try:
+            now = open("/etc/soarix/admin-mode").read().strip()
+        except OSError:
+            now = "default"
+        self.adm_dd.set_selected(next((i for i, (k, _) in enumerate(self.adm_choices) if k == now), 0))
+        arow = Gtk.Box(spacing=10)
+        arow.append(self.adm_dd)
+        sv = mk(Gtk.Button(label="Save"), "primary")
+        sv.connect("clicked", lambda *_: self.adm_save())
+        fg = Gtk.Button(label="Ask for the password again now")
+        fg.connect("clicked", lambda *_: self.adm_forget())
+        arow.append(sv)
+        arow.append(fg)
+        adm.append(arow)
+        col.append(adm)
+
         up = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
         up.append(label("Upgrade your license", "heading"))
         up.append(label("Have a new key, for example one that adds the server edition? Type it here.", "sub", wrap=True))
@@ -829,6 +892,16 @@ class SysInfoPage(Page):
             self.status.set_text(("%s will start at the next restart." % name) if rc == 0 else "That did not work (see the details).")
         self.admin(["soarix-desktop", key, "--next-boot"], "Soarix needs your password to change how it starts.",
                    "Saving ...", after)
+
+    def adm_save(self):
+        key, text = self.adm_choices[self.adm_dd.get_selected()]
+        self.admin(["soarix-admin-mode", "set", key], "Soarix needs your password to change this setting.",
+                   "Saving ...", lambda rc: self.status.set_text(("Saved: " + text + ".") if rc == 0 else "That did not work (see the details)."))
+
+    def adm_forget(self):
+        subprocess.run(["sudo", "-K"], capture_output=True)
+        self.password = None
+        self.status.set_text("The password is forgotten. Soarix will ask again the next time it needs it.")
 
     def sync_buttons(self, info=None):
         """Edition buttons: the current one and the ones the license does not include are not clickable."""
@@ -1077,8 +1150,967 @@ class GroupWindow(Gtk.Window):
         self.page.need_password("Soarix needs your password to manage this service.", go)
 
 
+def cli(tool, *args):
+    """Run a Soarix settings command (no administrator rights needed) and return its output."""
+    try:
+        return subprocess.run([tool] + list(args), capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def cli_json(tool, *args):
+    r = cli(tool, *args)
+    try:
+        return json.loads(r.stdout) if r and r.returncode == 0 else {}
+    except ValueError:
+        return {}
+
+
+class AppearancePage(Page):
+    TITLE = "Appearance"
+    SIZE = (900, 860)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Appearance", "Wallpaper, light or dark theme, and accent color.")
+        self.st = cli_json("soarix-appearance", "state")
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+
+        wc = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        wc.append(label("Wallpaper", "heading"))
+        self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, min_children_per_line=2, max_children_per_line=3,
+                                column_spacing=12, row_spacing=12, homogeneous=True)
+        self.thumbs = {}
+        for w in self.st.get("wallpapers", []):
+            btn = mk(Gtk.Button(), "thumb")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            pic = Gtk.Picture.new_for_filename(w["path"])
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            pic.set_can_shrink(True)
+            pic.set_size_request(320, 180)
+            box.append(pic)
+            box.append(label(w["name"], "sub"))
+            btn.set_child(box)
+            btn.connect("clicked", lambda _b, p=w["path"]: self.pick_wallpaper(p))
+            self.flow.append(btn)
+            self.thumbs[w["path"]] = btn
+        wc.append(self.flow)
+        own = Gtk.Button(label="Use my own picture ...", halign=Gtk.Align.START)
+        own.connect("clicked", lambda *_: self.own_picture())
+        wc.append(own)
+        col.append(wc)
+
+        tc = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        tc.append(label("Theme", "heading"))
+        trow = Gtk.Box(spacing=10)
+        self.theme_btns = {}
+        for key, text in (("dark", "Dark"), ("light", "Light")):
+            b = Gtk.Button(label=text)
+            b.connect("clicked", lambda _b, k=key: self.pick_theme(k))
+            trow.append(b)
+            self.theme_btns[key] = b
+        tc.append(trow)
+        col.append(tc)
+
+        ac = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        ac.append(label("Accent color", "heading"))
+        arow = Gtk.Box(spacing=10)
+        self.swatches = {}
+        for a in self.st.get("accents", []):
+            b = mk(Gtk.Button(label=""), "swatch", "sw-" + a["name"])
+            b.set_tooltip_text(a["label"])
+            b.connect("clicked", lambda _b, n=a["name"]: self.pick_accent(n))
+            arow.append(b)
+            self.swatches[a["name"]] = b
+        ac.append(arow)
+        col.append(ac)
+
+        rb = Gtk.Button(label="Reset to the Soarix defaults", halign=Gtk.Align.START)
+        rb.connect("clicked", lambda *_: self.reset())
+        col.append(rb)
+        scroll.set_child(col)
+        self.root.append(scroll)
+        self.state = self.log_area(60)
+        self.root.append(self.state)
+        self.show_state()
+
+    def show_state(self):
+        for p, b in self.thumbs.items():
+            (b.add_css_class if p == self.st.get("wallpaper") else b.remove_css_class)("selected")
+        for k, b in self.theme_btns.items():
+            b.set_label(("Dark" if k == "dark" else "Light") + ("   (now)" if k == self.st.get("theme") else ""))
+            (b.add_css_class if k == self.st.get("theme") else b.remove_css_class)("primary")
+        for n, b in self.swatches.items():
+            b.set_label("\u2713" if n == self.st.get("accent") else "")
+
+    def refresh(self, say):
+        self.st = cli_json("soarix-appearance", "state") or self.st
+        self.show_state()
+        self.status.set_text(say)
+
+    def pick_wallpaper(self, path):
+        cli("soarix-appearance", "wallpaper", path)
+        self.refresh("Wallpaper changed. It is used every time you sign in.")
+
+    def own_picture(self):
+        dlg = Gtk.FileDialog(title="Choose a picture")
+
+        def done(d, res):
+            try:
+                f = d.open_finish(res)
+            except GLib.Error:
+                return
+            if f and f.get_path():
+                cli("soarix-appearance", "wallpaper", f.get_path())
+                self.refresh("Wallpaper changed. It is used every time you sign in.")
+        dlg.open(self, None, done)
+
+    def pick_theme(self, key):
+        cli("soarix-appearance", "theme", key)
+        self.refresh("Theme changed. Apps that are already open may need to be reopened.")
+
+    def pick_accent(self, name):
+        cli("soarix-appearance", "accent", name)
+        self.refresh("Accent color changed.")
+
+    def reset(self):
+        cli("soarix-appearance", "reset")
+        self.refresh("Appearance reset to the Soarix defaults.")
+
+
+class KeepWindow(Gtk.Window):
+    """'Keep this setting?' with a countdown: if nobody answers, the old setting comes back by itself."""
+
+    def __init__(self, parent, on_keep, on_revert, seconds=15):
+        super().__init__(transient_for=parent, modal=True, title="Keep this setting?")
+        mk(self, "soarix-dialog")
+        self.on_keep, self.on_revert, self.left, self.done = on_keep, on_revert, seconds, False
+        self.set_default_size(420, -1)
+        self.set_resizable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(24)
+        box.append(label("Keep this setting?", "heading"))
+        self.msg = label("", "sub", wrap=True)
+        box.append(self.msg)
+        row = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        back = Gtk.Button(label="Go back")
+        back.connect("clicked", lambda *_: self.finish(False))
+        keep = mk(Gtk.Button(label="Keep this setting"), "primary")
+        keep.connect("clicked", lambda *_: self.finish(True))
+        row.append(back)
+        row.append(keep)
+        box.append(row)
+        self.set_child(box)
+        self.connect("close-request", lambda *_: (self.finish(False), False)[1])
+        self.tick()
+        GLib.timeout_add_seconds(1, self.tick)
+
+    def tick(self):
+        if self.done:
+            return False
+        self.msg.set_text("If you do nothing, the old setting comes back in %d seconds." % self.left)
+        if self.left <= 0:
+            self.finish(False)
+            return False
+        self.left -= 1
+        return True
+
+    def finish(self, keep):
+        if self.done:
+            return
+        self.done = True
+        (self.on_keep if keep else self.on_revert)()
+        self.close()
+
+
+class DisplayPage(Page):
+    TITLE = "Display Settings"
+    SIZE = (760, 820)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Display Settings", "Screen size, size of text and icons, lock screen and screen saver.")
+        self.st = cli_json("soarix-display", "state")
+        self.quiet = True
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+
+        sc = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        sc.append(label("Screen", "heading"))
+        grid = Gtk.Grid(row_spacing=12, column_spacing=20)
+        self.res = [tuple(r) for r in self.st.get("resolutions", [])]
+        self.res_dd = Gtk.DropDown.new_from_strings(["%d x %d" % r for r in self.res] or ["not available"])
+        self.res_dd.set_hexpand(True)
+        cur = (self.st.get("width"), self.st.get("height"))
+        if cur in self.res:
+            self.res_dd.set_selected(self.res.index(cur))
+        self.scales = self.st.get("scales", [])
+        self.scale_dd = Gtk.DropDown.new_from_strings([t for t, _ in self.scales] or ["not available"])
+        self.scale_dd.set_hexpand(True)
+        for i, (_, v) in enumerate(self.scales):
+            if abs(v - float(self.st.get("scale", 1.0))) < 0.01:
+                self.scale_dd.set_selected(i)
+        grid.attach(label("Resolution", "label-val"), 0, 0, 1, 1)
+        grid.attach(self.res_dd, 1, 0, 1, 1)
+        grid.attach(label("Text and icon size", "label-val"), 0, 1, 1, 1)
+        grid.attach(self.scale_dd, 1, 1, 1, 1)
+        sc.append(grid)
+        ap = mk(Gtk.Button(label="Apply", halign=Gtk.Align.START), "primary")
+        ap.connect("clicked", lambda *_: self.apply_screen())
+        sc.append(ap)
+        if not self.st.get("output"):
+            sc.append(label("The screen list is not available. Is the desktop running?", "warn", wrap=True))
+        col.append(sc)
+
+        lc = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        lc.append(label("Lock screen and screen saver", "heading"))
+        lg = Gtk.Grid(row_spacing=12, column_spacing=20)
+        self.minutes = self.st.get("minutes", [])
+        self.lock_dd = Gtk.DropDown.new_from_strings([t for t, _ in self.minutes] or ["not available"])
+        self.off_dd = Gtk.DropDown.new_from_strings([t for t, _ in self.minutes] or ["not available"])
+        for dd, key in ((self.lock_dd, "lock"), (self.off_dd, "off")):
+            dd.set_hexpand(True)
+            for i, (_, v) in enumerate(self.minutes):
+                if v == self.st.get(key):
+                    dd.set_selected(i)
+        self.lock_dd.connect("notify::selected", lambda *_: self.save_minutes("lock-after", self.lock_dd))
+        self.off_dd.connect("notify::selected", lambda *_: self.save_minutes("off-after", self.off_dd))
+        lg.attach(label("Lock the screen after", "label-val"), 0, 0, 1, 1)
+        lg.attach(self.lock_dd, 1, 0, 1, 1)
+        lg.attach(label("Screen saver (turns the screen off) after", "label-val"), 0, 1, 1, 1)
+        lg.attach(self.off_dd, 1, 1, 1, 1)
+        lc.append(lg)
+        ln = Gtk.Button(label="Lock the screen now", halign=Gtk.Align.START)
+        ln.connect("clicked", lambda *_: subprocess.Popen(["soarix-display", "lock"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                           stderr=subprocess.DEVNULL, start_new_session=True))
+        lc.append(ln)
+        col.append(lc)
+
+        rs = Gtk.Button(label="Reset to the recommended setting", halign=Gtk.Align.START)
+        rs.connect("clicked", lambda *_: self.reset())
+        col.append(rs)
+        scroll.set_child(col)
+        self.root.append(scroll)
+        self.state = self.log_area(60)
+        self.root.append(self.state)
+        self.quiet = False
+
+    def apply_screen(self):
+        if not self.res:
+            return
+        old = (self.st.get("width"), self.st.get("height"), float(self.st.get("scale", 1.0)))
+        w, h = self.res[self.res_dd.get_selected()]
+        sv = self.scales[self.scale_dd.get_selected()][1] if self.scales else old[2]
+        if (w, h, sv) == old:
+            self.status.set_text("That is already the current setting.")
+            return
+        cli("soarix-display", "mode", "%dx%d" % (w, h))
+        cli("soarix-display", "scale", "%g" % sv)
+
+        def keep():
+            cli("soarix-display", "keep")
+            self.st = cli_json("soarix-display", "state") or self.st
+            self.status.set_text("Saved. It is used every time you sign in.")
+
+        def revert():
+            cli("soarix-display", "mode", "%dx%d" % (old[0], old[1]))
+            cli("soarix-display", "scale", "%g" % old[2])
+            self.status.set_text("Went back to the old setting.")
+        KeepWindow(self, keep, revert).present()
+
+    def save_minutes(self, what, dd):
+        if self.quiet or not self.minutes:
+            return
+        v = self.minutes[dd.get_selected()][1]
+        cli("soarix-display", what, str(v))
+        self.status.set_text("Saved. It is used every time you sign in.")
+
+    def reset(self):
+        cli("soarix-display", "reset")
+        self.status.set_text("Reset. Reopen this window to see the new values.")
+
+
+HOSTCHARS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$")
+
+
+def out_of(cmd, timeout=30):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def nm_fields(line):
+    """Split one line of 'nmcli -t' output (colons inside values are escaped as backslash-colon)."""
+    parts, cur, esc = [], "", False
+    for ch in line:
+        if esc:
+            cur += ch
+            esc = False
+        elif ch == chr(92):
+            esc = True
+        elif ch == ":":
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return parts
+
+
+class WifiPassword(Gtk.Window):
+    def __init__(self, parent, ssid, on_ok):
+        super().__init__(transient_for=parent, modal=True, title="Wi-Fi password")
+        mk(self, "soarix-dialog")
+        self.on_ok = on_ok
+        self.set_default_size(420, -1)
+        self.set_resizable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(24)
+        box.append(label("Join %s" % ssid, "heading", wrap=True))
+        self.entry = Gtk.PasswordEntry(show_peek_icon=True)
+        self.entry.connect("activate", self.go)
+        box.append(self.entry)
+        row = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda *_: self.close())
+        ok = mk(Gtk.Button(label="Connect"), "primary")
+        ok.connect("clicked", self.go)
+        row.append(cancel)
+        row.append(ok)
+        box.append(row)
+        self.set_child(box)
+        self.entry.grab_focus()
+
+    def go(self, *_):
+        pw = self.entry.get_text()
+        if pw:
+            self.close()
+            self.on_ok(pw)
+
+
+class NetworkPage(Page):
+    TITLE = "Network"
+    SIZE = (880, 900)
+    TOOLS = [("Ping", "Check that a computer or website answers"), ("Traceroute", "See the path to a computer"),
+             ("DNS lookup", "Find the address of a name"), ("Port scan", "Which common ports are open on a computer"),
+             ("Who owns it", "Look up who registered a name or address"), ("Speed test", "Measure the internet speed"),
+             ("My public address", "The address the internet sees")]
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Network", "Connections, Wi-Fi and network tools.")
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+
+        cc = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        cc.append(label("Connections", "heading"))
+        self.conns = Gtk.Grid(row_spacing=8, column_spacing=22)
+        cc.append(self.conns)
+        crow = Gtk.Box(spacing=10)
+        rf = Gtk.Button(label="Refresh")
+        rf.connect("clicked", lambda *_: self.load_all())
+        adv = Gtk.Button(label="Advanced network settings")
+        adv.connect("clicked", lambda *_: self.spawn(["nm-connection-editor"]))
+        crow.append(rf)
+        crow.append(adv)
+        cc.append(crow)
+        col.append(cc)
+
+        self.wifi_card = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        wh = Gtk.Box(spacing=10)
+        t = label("Wi-Fi", "heading")
+        t.set_hexpand(True)
+        wh.append(t)
+        self.wifi_sw = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.wifi_sw.connect("notify::active", lambda *_: self.on_wifi_switch())
+        wh.append(self.wifi_sw)
+        self.wifi_card.append(wh)
+        self.wifi_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.wifi_card.append(self.wifi_list)
+        scan = Gtk.Button(label="Scan for networks", halign=Gtk.Align.START)
+        scan.connect("clicked", lambda *_: self.scan_wifi(True))
+        self.wifi_card.append(scan)
+        col.append(self.wifi_card)
+
+        tc = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        tc.append(label("Network tools", "heading"))
+        row = Gtk.Box(spacing=10)
+        self.tool_dd = Gtk.DropDown.new_from_strings([n for n, _ in self.TOOLS])
+        self.tool_dd.connect("notify::selected", lambda *_: self.tool_hint())
+        self.target = Gtk.Entry(placeholder_text="Name or address, for example example.com", hexpand=True)
+        self.target.connect("activate", lambda *_: self.run_tool())
+        go = mk(Gtk.Button(label="Run"), "primary")
+        go.connect("clicked", lambda *_: self.run_tool())
+        row.append(self.tool_dd)
+        row.append(self.target)
+        row.append(go)
+        tc.append(row)
+        self.hint = label("", "sub", wrap=True)
+        tc.append(self.hint)
+        col.append(tc)
+        scroll.set_child(col)
+        self.root.append(scroll)
+        self.state = self.log_area(190)
+        self.root.append(self.state)
+        self.details.set_expanded(True)
+        self.details.set_visible(True)
+        self.quiet = True
+        self.tool_hint()
+        self.load_all()
+        self.quiet = False
+
+    def spawn(self, cmd):
+        try:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            self.status.set_text("That program is not installed.")
+
+    def load_all(self):
+        c = self.conns
+        while c.get_first_child():
+            c.remove(c.get_first_child())
+        i = 0
+        for ln in out_of(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"]).splitlines():
+            dev, typ, st, con = (nm_fields(ln) + ["", "", "", ""])[:4]
+            if typ in ("loopback", "bridge", "tun") or dev.startswith(("lo", "docker", "veth", "virbr", "podman", "br-")):
+                continue
+            ip = out_of(["nmcli", "-g", "IP4.ADDRESS", "device", "show", dev]).split()
+            c.attach(label(dev + "   (" + {"ethernet": "cable", "wifi": "Wi-Fi"}.get(typ, typ) + ")", "label-val"), 0, i, 1, 1)
+            c.attach(label(("connected to " + con) if st == "connected" else st, "good" if st == "connected" else "label-key"), 1, i, 1, 1)
+            c.attach(label(", ".join(ip) if ip else "", "label-key"), 2, i, 1, 1)
+            i += 1
+        if not i:
+            c.attach(label("No network connections found. Is NetworkManager running?", "warn"), 0, 0, 1, 1)
+        radio = out_of(["nmcli", "radio", "wifi"]).strip()
+        self.wifi_card.set_visible(bool(out_of(["nmcli", "-t", "-f", "TYPE", "device"]).count("wifi")))
+        was = self.quiet
+        self.quiet = True
+        self.wifi_sw.set_active(radio == "enabled")
+        self.quiet = was
+        if radio == "enabled":
+            self.scan_wifi(False)
+
+    def on_wifi_switch(self):
+        if self.quiet:
+            return
+        out_of(["nmcli", "radio", "wifi", "on" if self.wifi_sw.get_active() else "off"])
+        self.load_all()
+
+    def scan_wifi(self, rescan):
+        box = self.wifi_list
+        while box.get_first_child():
+            box.remove(box.get_first_child())
+        seen = set()
+        lines = out_of(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes" if rescan else "auto"], 40).splitlines()
+        for ln in lines:
+            use, ssid, sig, sec = (nm_fields(ln) + ["", "", "", ""])[:4]
+            if not ssid or ssid in seen:
+                continue
+            seen.add(ssid)
+            r = mk(Gtk.Box(spacing=14), "approw")
+            txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            txt.append(label(ssid, "label-val"))
+            txt.append(label("Signal %s%%   %s" % (sig, sec if sec else "open network"), "sub"))
+            r.append(txt)
+            if use.strip() == "*":
+                r.append(mk(Gtk.Label(label="Connected", valign=Gtk.Align.CENTER), "tag"))
+            else:
+                b = Gtk.Button(label="Connect")
+                b.connect("clicked", lambda _b, s=ssid, secured=bool(sec): self.join(s, secured))
+                r.append(b)
+            box.append(r)
+        if not seen:
+            box.append(label("No Wi-Fi networks found yet. Press Scan.", "sub"))
+
+    def join(self, ssid, secured):
+        def go(pw=None):
+            self.log_clear()
+            self.busy(True, "Connecting to %s ..." % ssid)
+            cmd = ["nmcli", "device", "wifi", "connect", ssid] + (["password", pw] if pw else [])
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.status.set_text(("Connected to %s." % ssid) if rc == 0 else "Could not connect. Check the password and try again.")
+                self.load_all()
+            self.runner.run(cmd, on_line, on_done)
+        if secured:
+            WifiPassword(self, ssid, go).present()
+        else:
+            go()
+
+    def tool_hint(self):
+        name, desc = self.TOOLS[self.tool_dd.get_selected()]
+        self.hint.set_text(desc + (".  Needs no name." if name in ("Speed test", "My public address") else "."))
+        self.target.set_sensitive(name not in ("Speed test", "My public address"))
+
+    def run_tool(self):
+        name = self.TOOLS[self.tool_dd.get_selected()][0]
+        t = self.target.get_text().strip()
+        if name not in ("Speed test", "My public address") and not HOSTCHARS.match(t):
+            self.status.set_text("Type a name or address first (letters, numbers, dots and dashes only).")
+            return
+        trace = ["traceroute", "-w", "2", "-m", "20", t] if shutil.which("traceroute") else ["tracepath", t]
+        cmd = {"Ping": ["ping", "-c", "4", t], "Traceroute": trace, "DNS lookup": ["dig", "+noall", "+answer", "+stats", t],
+               "Port scan": ["nmap", "-F", t], "Who owns it": ["whois", t], "Speed test": ["speedtest-cli", "--simple"],
+               "My public address": ["curl", "-s", "--max-time", "15", "https://ifconfig.me"]}[name]
+        if not shutil.which(cmd[0]):
+            self.status.set_text("%s is not installed on this computer." % cmd[0])
+            return
+        self.log_clear()
+        self.busy(True, "%s ..." % name)
+
+        def on_line(ln, partial):
+            if not partial:
+                self.log_add(ln)
+
+        def on_done(rc, err):
+            self.busy(False)
+            self.status.set_text("Done." if rc == 0 else "Finished with a problem (see the output).")
+        self.runner.run(cmd, on_line, on_done)
+
+
+class PrintersPage(Page):
+    TITLE = "Printers"
+    SIZE = (820, 800)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Printers", "Add printers, choose the default and print a test page.")
+        self.listbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_child(self.listbox)
+        self.root.append(scroll)
+        self.state = self.log_area(150)
+        self.root.append(self.state)
+        row = Gtk.Box(spacing=10)
+        find = mk(Gtk.Button(label="Find printers"), "primary")
+        find.connect("clicked", lambda *_: self.find())
+        adv = Gtk.Button(label="Advanced printer settings")
+        adv.connect("clicked", lambda *_: subprocess.Popen(["system-config-printer"], stdin=subprocess.DEVNULL,
+                                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True))
+        row.append(find)
+        row.append(adv)
+        self.root.append(row)
+        self.load()
+
+    def load(self):
+        box = self.listbox
+        while box.get_first_child():
+            box.remove(box.get_first_child())
+        txt = out_of(["lpstat", "-p", "-d", "-v"])
+        if not txt.strip():
+            msg = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), "card")
+            msg.append(label("No printers yet", "heading"))
+            msg.append(label("Press Find printers to look for printers on your network and USB. If nothing is found, the printing "
+                             "service may be off.", "sub", wrap=True))
+            on = Gtk.Button(label="Turn on the printing service", halign=Gtk.Align.START)
+            on.connect("clicked", lambda *_: self.admin(["sh", "-c", "systemctl enable --now cups.socket cups.service"],
+                                                        "Soarix needs your password to turn on printing.", "Turning on printing ..."))
+            msg.append(on)
+            box.append(msg)
+            return
+        default, names, uris = "", [], {}
+        for ln in txt.splitlines():
+            m = re.match(r"printer (\S+) (.*)", ln)
+            if m:
+                names.append((m.group(1), m.group(2)))
+            m = re.match(r"system default destination: (\S+)", ln)
+            if m:
+                default = m.group(1)
+            m = re.match(r"device for (\S+): (\S+)", ln)
+            if m:
+                uris[m.group(1)] = m.group(2)
+        for name, state in names:
+            r = mk(Gtk.Box(spacing=12), "approw")
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            t.append(label(name + ("   (default)" if name == default else ""), "label-val"))
+            t.append(label("%s   %s" % ("Ready" if "idle" in state else ("Off" if "disabled" in state else state[:40]), uris.get(name, "")), "sub", wrap=True))
+            r.append(t)
+            if name != default:
+                d = Gtk.Button(label="Make default")
+                d.connect("clicked", lambda _b, n=name: self.admin(["lpadmin", "-d", n], "Soarix needs your password to change the default printer.",
+                                                                    "Setting the default ..."))
+                r.append(d)
+            tp = Gtk.Button(label="Test page")
+            tp.connect("clicked", lambda _b, n=name: self.test_page(n))
+            r.append(tp)
+            rm = Gtk.Button(label="Remove")
+            rm.connect("clicked", lambda _b, n=name: self.admin(["lpadmin", "-x", n], "Soarix needs your password to remove a printer.", "Removing ..."))
+            r.append(rm)
+            box.append(r)
+
+    def test_page(self, name):
+        self.log_clear()
+        self.busy(True, "Sending a test page to %s ..." % name)
+
+        def on_line(ln, partial):
+            if not partial:
+                self.log_add(ln)
+
+        def on_done(rc, err):
+            self.busy(False)
+            self.status.set_text("Test page sent." if rc == 0 else "The test page could not be sent (see the details).")
+        self.runner.run(["lp", "-d", name, "/usr/share/cups/data/default-testpage.pdf"], on_line, on_done)
+
+    def admin(self, cmd, why, busy_text):
+        def go():
+            self.log_clear()
+            self.busy(True, busy_text)
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.status.set_text("Done." if rc == 0 else "That did not work (see the details).")
+                self.load()
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
+        self.need_password(why, go)
+
+    def find(self):
+        found = []
+
+        def go():
+            self.log_clear()
+            self.busy(True, "Looking for printers ...")
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+                    parts = ln.split()
+                    if len(parts) >= 2 and parts[0] in ("network", "direct") and "://" in parts[1] and parts[1].split(":")[0] in ("ipp", "ipps", "dnssd", "usb", "socket"):
+                        found.append(parts[1])
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.show_found(sorted(set(found)))
+            self.runner.run(["lpinfo", "-v"], on_line, on_done, admin=True, password=self.password)
+        self.need_password("Soarix needs your password to look for printers.", go)
+
+    def show_found(self, uris):
+        if not uris:
+            self.status.set_text("No printers were found. Check that the printer is on and connected.")
+            return
+        self.status.set_text("Found %d. Press Add next to the one you want." % len(uris))
+        box = self.listbox
+        while box.get_first_child():
+            box.remove(box.get_first_child())
+        for u in uris:
+            r = mk(Gtk.Box(spacing=12), "approw")
+            r.append(label(u, "label-val", wrap=True))
+            r.get_first_child().set_hexpand(True)
+            b = mk(Gtk.Button(label="Add"), "primary")
+            b.connect("clicked", lambda _b, uri=u: self.add(uri))
+            r.append(b)
+            box.append(r)
+        back = Gtk.Button(label="Back to my printers", halign=Gtk.Align.START)
+        back.connect("clicked", lambda *_: self.load())
+        box.append(back)
+
+    def add(self, uri):
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", uri.split("://", 1)[1])[:40].strip("_") or "Printer"
+        self.admin(["lpadmin", "-p", name, "-E", "-v", uri, "-m", "everywhere"], "Soarix needs your password to add a printer.",
+                   "Adding the printer ...")
+
+
+def default_subnet():
+    """The network this computer is on, for example 192.168.1.0/24."""
+    import ipaddress
+    dev = ""
+    for ln in out_of(["ip", "-4", "-o", "route", "show", "default"]).splitlines():
+        parts = ln.split()
+        if "dev" in parts:
+            dev = parts[parts.index("dev") + 1]
+            break
+    for ln in out_of(["ip", "-4", "-o", "addr", "show", "dev", dev] if dev else ["ip", "-4", "-o", "addr"]).splitlines():
+        parts = ln.split()
+        if "inet" in parts:
+            try:
+                return str(ipaddress.ip_interface(parts[parts.index("inet") + 1]).network)
+            except ValueError:
+                pass
+    return ""
+
+
+class DevicesPage(Page):
+    TITLE = "Network Devices"
+    SIZE = (920, 840)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Network Devices", "Find computers, printers and other devices on your network.")
+        card = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        card.append(label("Scan this network", "heading"))
+        row = Gtk.Box(spacing=10)
+        self.range = Gtk.Entry(text=default_subnet(), placeholder_text="for example 192.168.1.0/24", hexpand=True)
+        self.range.connect("activate", lambda *_: self.scan())
+        self.scan_btn = mk(Gtk.Button(label="Scan"), "primary")
+        self.scan_btn.connect("clicked", lambda *_: self.scan())
+        row.append(self.range)
+        row.append(self.scan_btn)
+        card.append(row)
+        card.append(label("The scan asks each address whether a device is there. It takes a few seconds and changes nothing.", "sub", wrap=True))
+        self.root.append(card)
+        self.results = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_child(self.results)
+        self.root.append(scroll)
+        self.state = self.log_area(150)
+        self.root.append(self.state)
+
+    def scan(self):
+        import ipaddress
+        try:
+            net = ipaddress.ip_network(self.range.get_text().strip(), strict=False)
+        except ValueError:
+            self.status.set_text("Type a network like 192.168.1.0/24.")
+            return
+        if net.version != 4 or net.prefixlen < 16:
+            self.status.set_text("That range is too large. Use a /16 or smaller, for example 192.168.1.0/24.")
+            return
+        cidr = str(net)
+
+        def go():
+            self.log_clear()
+            self.scan_btn.set_sensitive(False)
+            self.busy(True, "Looking for devices on %s ..." % cidr)
+            self.lines = []
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.lines.append(ln)
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.scan_btn.set_sensitive(True)
+                self.show(cidr)
+            self.runner.run(["nmap", "-sn", cidr], on_line, on_done, admin=True, password=self.password)
+        self.need_password("Soarix needs your password to look at the network.", go)
+
+    def show(self, cidr):
+        devs, cur = [], None
+        for ln in self.lines:
+            m = re.match(r"Nmap scan report for (?:(\S+) \((\S+)\)|(\S+))", ln)
+            if m:
+                cur = {"name": m.group(1) or "", "ip": m.group(2) or m.group(3), "mac": "", "vendor": ""}
+                devs.append(cur)
+                continue
+            m = re.match(r"MAC Address: (\S+)(?: \((.*)\))?", ln)
+            if m and cur:
+                cur["mac"], cur["vendor"] = m.group(1), m.group(2) or ""
+        box = self.results
+        while box.get_first_child():
+            box.remove(box.get_first_child())
+        for d in devs:
+            r = mk(Gtk.Box(spacing=14), "approw")
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            t.append(label(d["name"] or d["ip"], "label-val"))
+            t.append(label("%s   %s   %s" % (d["ip"], d["mac"], d["vendor"]), "sub", wrap=True))
+            r.append(t)
+            pb = Gtk.Button(label="Ping")
+            pb.connect("clicked", lambda _b, ip=d["ip"]: self.tool(["ping", "-c", "4", ip], "Pinging %s ..." % ip, False))
+            sb = Gtk.Button(label="Open ports")
+            sb.connect("clicked", lambda _b, ip=d["ip"]: self.tool(["nmap", "-F", ip], "Checking the common ports on %s ..." % ip, True))
+            r.append(pb)
+            r.append(sb)
+            box.append(r)
+        self.status.set_text("Found %d device%s on %s." % (len(devs), "" if len(devs) == 1 else "s", cidr))
+
+    def tool(self, cmd, text, admin):
+        self.log_clear()
+        self.busy(True, text)
+
+        def on_line(ln, partial):
+            if not partial:
+                self.log_add(ln)
+
+        def on_done(rc, err):
+            self.busy(False)
+            self.status.set_text("Done." if rc == 0 else "Finished with a problem (see the details).")
+        self.runner.run(cmd, on_line, on_done, admin=admin, password=self.password)
+
+
+class UsersPage(Page):
+    TITLE = "Users"
+    SIZE = (860, 860)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Users", "Add people, change passwords and choose who is an administrator.")
+        self.me = os.environ.get("USER", "")
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        col.append(self.box)
+        add = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        add.append(label("Add a person", "heading"))
+        g = Gtk.Grid(row_spacing=10, column_spacing=16)
+        self.full = Gtk.Entry(placeholder_text="Full name", hexpand=True)
+        self.user = Gtk.Entry(placeholder_text="Username (lowercase letters and numbers)", hexpand=True)
+        self.pw = Gtk.PasswordEntry(show_peek_icon=True, hexpand=True)
+        self.pw.set_property("placeholder-text", "Password (at least 8 characters)") if hasattr(self.pw.props, "placeholder_text") else None
+        self.adm = Gtk.CheckButton(label="Administrator (can install and change the system)")
+        for i, (t, w) in enumerate((("Full name", self.full), ("Username", self.user), ("Password", self.pw))):
+            g.attach(label(t, "label-key"), 0, i, 1, 1)
+            g.attach(w, 1, i, 1, 1)
+        g.attach(self.adm, 1, 3, 1, 1)
+        add.append(g)
+        mkb = mk(Gtk.Button(label="Add this person", halign=Gtk.Align.START), "primary")
+        mkb.connect("clicked", lambda *_: self.add_user())
+        add.append(mkb)
+        col.append(add)
+        scroll.set_child(col)
+        self.root.append(scroll)
+        self.state = self.log_area(90)
+        self.root.append(self.state)
+        self.load()
+
+    def people(self):
+        admins = set()
+        for ln in out_of(["getent", "group", "wheel"]).splitlines():
+            admins.update(ln.rsplit(":", 1)[-1].split(","))
+        out = []
+        for ln in out_of(["getent", "passwd"]).splitlines():
+            p = ln.split(":")
+            if len(p) >= 7 and p[2].isdigit() and 1000 <= int(p[2]) < 60000 and not p[6].endswith(("nologin", "false")):
+                out.append({"name": p[0], "full": p[4].split(",")[0], "admin": p[0] in admins})
+        return out
+
+    def load(self):
+        b = self.box
+        while b.get_first_child():
+            b.remove(b.get_first_child())
+        for u in self.people():
+            r = mk(Gtk.Box(spacing=12), "approw")
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            t.append(label(u["full"] or u["name"], "label-val"))
+            t.append(label("%s   %s%s" % (u["name"], "Administrator" if u["admin"] else "Standard", "   (you)" if u["name"] == self.me else ""), "sub"))
+            r.append(t)
+            pw = Gtk.Button(label="Change password")
+            pw.connect("clicked", lambda _b, n=u["name"]: self.change_pw(n))
+            r.append(pw)
+            if u["name"] != self.me:
+                ad = Gtk.Button(label="Remove administrator" if u["admin"] else "Make administrator")
+                ad.connect("clicked", lambda _b, n=u["name"], a=u["admin"]: self.set_admin(n, not a))
+                r.append(ad)
+                rm = Gtk.Button(label="Remove")
+                rm.connect("clicked", lambda _b, n=u["name"]: self.remove(n))
+                r.append(rm)
+            b.append(r)
+
+    def admin(self, cmd, stdin, why, busy_text, done_text):
+        def go():
+            self.log_clear()
+            self.busy(True, busy_text)
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.status.set_text(done_text if rc == 0 else "That did not work (see the details).")
+                self.load()
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password, extra_stdin=stdin)
+        self.need_password(why, go)
+
+    def add_user(self):
+        user, full, pw = self.user.get_text().strip(), self.full.get_text().strip(), self.pw.get_text()
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,30}", user) or user in ("root", "admin", "guest", "nobody", "install", "daemon", "bin", "sys"):
+            self.status.set_text("The username must be lowercase letters and numbers, starting with a letter (not a system name).")
+            return
+        if len(pw) < 8:
+            self.status.set_text("The password needs at least 8 characters.")
+            return
+        full = re.sub(r"[^A-Za-z0-9 .'-]", "", full)
+        import shlex
+        cmd = "useradd -m -c %s %s %s && chpasswd" % (shlex.quote(full or user), "-G wheel" if self.adm.get_active() else "", shlex.quote(user))
+        self.admin(["sh", "-c", cmd], user + ":" + pw + "\n", "Soarix needs your password to add a person.", "Adding %s ..." % user,
+                   "%s was added. They can sign in now." % user)
+        self.pw.set_text("")
+
+    def change_pw(self, name):
+        dlg = Gtk.Window(transient_for=self, modal=True, title="New password")
+        mk(dlg, "soarix-dialog")
+        dlg.set_default_size(420, -1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(24)
+        box.append(label("New password for %s" % name, "heading", wrap=True))
+        e1 = Gtk.PasswordEntry(show_peek_icon=True)
+        e2 = Gtk.PasswordEntry(show_peek_icon=True)
+        msg = label("", "bad")
+        for w in (e1, e2, msg):
+            box.append(w)
+        row = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        c = Gtk.Button(label="Cancel")
+        c.connect("clicked", lambda *_: dlg.close())
+        ok = mk(Gtk.Button(label="Change password"), "primary")
+
+        def go(*_):
+            if len(e1.get_text()) < 8:
+                msg.set_text("At least 8 characters.")
+            elif e1.get_text() != e2.get_text():
+                msg.set_text("The two passwords do not match.")
+            else:
+                pw = e1.get_text()
+                dlg.close()
+                self.admin(["chpasswd"], name + ":" + pw + "\n", "Soarix needs your password to change a password.",
+                           "Changing the password ...", "The password for %s was changed." % name)
+        ok.connect("clicked", go)
+        row.append(c)
+        row.append(ok)
+        box.append(row)
+        dlg.set_child(box)
+        dlg.present()
+
+    def set_admin(self, name, make):
+        cmd = ["usermod", "-aG", "wheel", name] if make else ["gpasswd", "-d", name, "wheel"]
+        self.admin(cmd, None, "Soarix needs your password to change who is an administrator.", "Saving ...",
+                   "%s is now %s." % (name, "an administrator" if make else "a standard user"))
+
+    def remove(self, name):
+        dlg = Gtk.Window(transient_for=self, modal=True, title="Remove %s?" % name)
+        mk(dlg, "soarix-dialog")
+        dlg.set_default_size(440, -1)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(24)
+        box.append(label("Remove %s?" % name, "heading", wrap=True))
+        files = Gtk.CheckButton(label="Also delete their files")
+        box.append(files)
+        row = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        c = Gtk.Button(label="Cancel")
+        c.connect("clicked", lambda *_: dlg.close())
+        ok = mk(Gtk.Button(label="Remove"), "primary")
+
+        def go(*_):
+            keep = files.get_active()
+            dlg.close()
+            self.admin(["userdel"] + (["-r"] if keep else []) + [name], None, "Soarix needs your password to remove a person.",
+                       "Removing %s ..." % name, "%s was removed." % name)
+        ok.connect("clicked", go)
+        row.append(c)
+        row.append(ok)
+        box.append(row)
+        dlg.set_child(box)
+        dlg.present()
+
+
 PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage,
-         "sysinfo": SysInfoPage, "services": ServicesPage}
+         "sysinfo": SysInfoPage, "services": ServicesPage, "appearance": AppearancePage, "display": DisplayPage,
+         "network": NetworkPage, "printers": PrintersPage,
+         "devices": DevicesPage, "users": UsersPage}
 
 
 def main():

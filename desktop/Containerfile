@@ -5,7 +5,7 @@ FROM scratch AS ctx
 COPY desktop /
 
 FROM ${BASE}
-ARG SOARIX_VERSION=0.3.1
+ARG SOARIX_VERSION=0.3.2
 LABEL org.opencontainers.image.source="https://github.com/myronblair/soarix" \
       org.opencontainers.image.version="${SOARIX_VERSION}"
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
@@ -23,7 +23,7 @@ RUN sed -i '/^spawn-at-startup "waybar"$/d' /etc/niri/config.kdl
 # Apply the saved screen resolution (or a sensible default in a virtual machine) at login
 RUN echo 'spawn-at-startup "soarix-display" "apply"' >> /etc/niri/config.kdl
 # Keep the app drawer to useful apps: hide terminals nobody opens by hand and the Bluetooth adapter page
-RUN for f in Alacritty foot-server footclient blueman-adapters; do sed -i '0,/^\[Desktop Entry\]/s//[Desktop Entry]\nNoDisplay=true/' /usr/share/applications/$f.desktop; done
+RUN for f in Alacritty foot-server footclient blueman-adapters system-config-printer; do sed -i '0,/^\[Desktop Entry\]/s//[Desktop Entry]\nNoDisplay=true/' /usr/share/applications/$f.desktop; done
 # Tools an IT person expects on a desktop: remote desktop client (RDP/VNC), VPN support in the network settings
 RUN dnf5 -y install --skip-unavailable remmina remmina-plugins-rdp remmina-plugins-vnc remmina-plugins-secret NetworkManager-openvpn-gnome openvpn wireguard-tools && dnf5 clean all
 # No first-login pop-up of niri's key list
@@ -31,4 +31,6 @@ RUN sed -i 's|// skip-at-startup|skip-at-startup|' /etc/niri/config.kdl
 # Lock screen (with a clock), automatic lock and screen saver, and the Appearance settings.
 RUN dnf5 -y install gtklock swayidle && dnf5 clean all
 RUN sed -i 's|^spawn-at-startup "waybar" "-c" .*|spawn-at-startup "soarix-appearance" "bar"\nspawn-at-startup "soarix-appearance" "apply"\nspawn-at-startup "soarix-display" "idle"|; s|spawn "swaylock"|spawn "soarix-display" "lock"|; s|Lock the Screen: swaylock|Lock the Screen|' /etc/niri/config.kdl
+# Network toolkit for the desktop and the server edition (anything Fedora does not ship is skipped)
+RUN dnf5 -y install --skip-unavailable bind-utils traceroute mtr nmap iperf3 ethtool whois net-tools nmap-ncat socat tcpdump iftop nload nethogs bmon wireshark-cli speedtest-cli iw arp-scan NetworkManager-tui NetworkManager-wifi NetworkManager-l2tp NetworkManager-vpnc NetworkManager-ssh avahi-tools conntrack-tools ipcalc && dnf5 clean all
 RUN bootc container lint

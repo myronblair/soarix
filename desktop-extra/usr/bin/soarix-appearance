@@ -5,6 +5,7 @@
   soarix-appearance apply    at login: apply the saved choices (or the defaults)
   soarix-appearance bar      start the top bar with the chosen accent color (used at login)
   soarix-appearance restart-bar   apply the clock format and accent color to the bar now
+  soarix-appearance state | wallpaper PATH | theme dark|light | accent NAME | reset   (for the Appearance window)
 """
 import glob
 import json
@@ -94,10 +95,78 @@ def gset(key, val):
     subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", key, val], capture_output=True)
 
 
+GTK_MARK = "/* Soarix Appearance - gives every GTK app the Soarix look. Remove this line to keep your own edits. */"
+# palette: libadwaita (GTK 4) names first, GTK 3 names second
+PALETTES = {
+    "dark": {"window_bg": "#0b1426", "window_fg": "#e6edf7", "view_bg": "#0f1930", "view_fg": "#e6edf7", "head_bg": "#0b1426",
+             "head_fg": "#e6edf7", "card_bg": "#111d36", "pop_bg": "#111d36", "side_bg": "#0f1930", "border": "#22304f",
+             "dim_fg": "#6f80a3", "accent_fg": "#0b1426"},
+    "light": {"window_bg": "#f3f6fb", "window_fg": "#101a2e", "view_bg": "#ffffff", "view_fg": "#101a2e", "head_bg": "#ffffff",
+              "head_fg": "#101a2e", "card_bg": "#ffffff", "pop_bg": "#ffffff", "side_bg": "#e9eef7", "border": "#d3dbe8",
+              "dim_fg": "#6a7891", "accent_fg": "#ffffff"},
+}
+
+
+def gtk_css(conf, version):
+    p = PALETTES["light" if conf.get("theme") == "light" else "dark"]
+    acc = "#" + accent_of(conf)[0]
+    n = []
+    if version == 4:
+        pairs = [("accent_bg_color", acc), ("accent_color", acc), ("accent_fg_color", p["accent_fg"]),
+                 ("window_bg_color", p["window_bg"]), ("window_fg_color", p["window_fg"]),
+                 ("view_bg_color", p["view_bg"]), ("view_fg_color", p["view_fg"]),
+                 ("headerbar_bg_color", p["head_bg"]), ("headerbar_fg_color", p["head_fg"]),
+                 ("headerbar_border_color", "#c8963e"), ("headerbar_backdrop_color", p["head_bg"]),
+                 ("card_bg_color", p["card_bg"]), ("card_fg_color", p["window_fg"]),
+                 ("popover_bg_color", p["pop_bg"]), ("popover_fg_color", p["window_fg"]),
+                 ("dialog_bg_color", p["window_bg"]), ("dialog_fg_color", p["window_fg"]),
+                 ("sidebar_bg_color", p["side_bg"]), ("sidebar_fg_color", p["window_fg"]),
+                 ("secondary_sidebar_bg_color", p["window_bg"]), ("thumbnail_bg_color", p["card_bg"])]
+    else:
+        pairs = [("theme_bg_color", p["window_bg"]), ("theme_fg_color", p["window_fg"]),
+                 ("theme_base_color", p["view_bg"]), ("theme_text_color", p["view_fg"]),
+                 ("theme_selected_bg_color", acc), ("theme_selected_fg_color", p["accent_fg"]),
+                 ("theme_unfocused_bg_color", p["window_bg"]), ("theme_unfocused_fg_color", p["window_fg"]),
+                 ("theme_unfocused_base_color", p["view_bg"]), ("theme_unfocused_text_color", p["view_fg"]),
+                 ("theme_unfocused_selected_bg_color", acc), ("theme_unfocused_selected_fg_color", p["accent_fg"]),
+                 ("insensitive_bg_color", p["view_bg"]), ("insensitive_fg_color", p["dim_fg"]),
+                 ("insensitive_base_color", p["view_bg"]), ("borders", p["border"]), ("unfocused_borders", p["border"]),
+                 ("content_view_bg", p["view_bg"]), ("text_view_bg", p["view_bg"]),
+                 ("link_color", acc), ("theme_hovering_selected_bg_color", acc)]
+    for name, val in pairs:
+        n.append("@define-color %s %s;" % (name, val))
+    n.append("headerbar, .titlebar { background: %s; color: %s; border-bottom: 2px solid #c8963e; box-shadow: none; }" % (p["head_bg"], p["head_fg"]))
+    return GTK_MARK + "\n" + "\n".join(n) + "\n"
+
+
+def write_gtk_css(conf):
+    """Every GTK app reads these two files. Files the person wrote themselves (no mark) are left alone."""
+    for ver in (3, 4):
+        d = os.path.expanduser("~/.config/gtk-%d.0" % ver)
+        f = os.path.join(d, "gtk.css")
+        try:
+            if os.path.exists(f) and not open(f).read().startswith(GTK_MARK):
+                continue
+            os.makedirs(d, exist_ok=True)
+            with open(f, "w") as fh:
+                fh.write(gtk_css(conf, ver))
+        except OSError:
+            pass
+    ini = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
+    try:
+        if not os.path.exists(ini) or open(ini).read().startswith("# Soarix"):
+            with open(ini, "w") as fh:
+                fh.write("# Soarix Appearance (remove this line to keep your own edits)\n[Settings]\ngtk-application-prefer-dark-theme=%d\n"
+                         % (0 if conf.get("theme") == "light" else 1))
+    except OSError:
+        pass
+
+
 def set_theme(conf):
     dark = conf.get("theme", "dark") != "light"
     gset("color-scheme", "'prefer-dark'" if dark else "'prefer-light'")
     gset("accent-color", "'%s'" % accent_of(conf)[1])
+    write_gtk_css(conf)
 
 
 def bar_css(conf):
@@ -161,6 +230,25 @@ def apply_all():
     if conf.get("wallpaper") and wallpaper_path(conf) != os.path.join(WALLPAPERS, DEFAULT_WALLPAPER):
         set_wallpaper(wallpaper_path(conf))
     return 0
+
+
+def wallpaper_list():
+    out = []
+    for f in sorted(glob.glob(os.path.join(WALLPAPERS, "*.png"))):
+        b = os.path.basename(f)
+        out.append({"path": f, "name": NAMES.get(b, os.path.splitext(b)[0])})
+    pics = (glob.glob(os.path.expanduser("~/Pictures/*.png")) + glob.glob(os.path.expanduser("~/Pictures/*.jpg")) +
+            glob.glob(os.path.expanduser("~/Pictures/*.jpeg")))
+    for f in sorted(pics):
+        out.append({"path": f, "name": "My picture: " + os.path.basename(f)})
+    return out
+
+
+def state_json():
+    conf = load()
+    return {"wallpapers": wallpaper_list(), "wallpaper": wallpaper_path(conf), "theme": conf.get("theme", "dark"),
+            "accent": accent_of(conf)[1],
+            "accents": [{"name": g, "label": l.split()[0], "hex": h} for l, h, g in ACCENTS]}
 
 
 def choose_wallpaper():
@@ -255,6 +343,37 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     if a == ["apply"]:
         sys.exit(apply_all())
+    if a == ["state"]:
+        print(json.dumps(state_json()))
+        sys.exit(0)
+    if len(a) == 2 and a[0] == "wallpaper" and os.path.isfile(a[1]):
+        conf = load()
+        conf["wallpaper"] = a[1]
+        save(conf)
+        set_wallpaper(a[1])
+        sys.exit(0)
+    if len(a) == 2 and a[0] == "theme" and a[1] in ("dark", "light"):
+        conf = load()
+        conf["theme"] = a[1]
+        save(conf)
+        set_theme(conf)
+        sys.exit(0)
+    if len(a) == 2 and a[0] == "accent" and a[1] in [g for _, _, g in ACCENTS]:
+        conf = load()
+        conf["accent"] = a[1]
+        save(conf)
+        set_theme(conf)
+        restart_bar(conf)
+        sys.exit(0)
+    if a == ["reset"]:
+        try:
+            os.remove(CONF)
+        except OSError:
+            pass
+        set_theme({})
+        set_wallpaper(wallpaper_path({}))
+        restart_bar({})
+        sys.exit(0)
     if a == ["restart-bar"]:
         set_clock_format()
         restart_bar(load())

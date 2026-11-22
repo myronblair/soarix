@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Printers
+Comment=Add printers, choose the default and print a test page
+Exec=soarix-window printers
+Icon=soarix-printers
+Categories=System;Settings;HardwareSettings;
+Keywords=printer;print;printing;cups;scanner;test page;
