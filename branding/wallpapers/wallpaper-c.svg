@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#070c18"/><stop offset=".6" stop-color="#0d1730"/><stop offset="1" stop-color="#16294a"/></linearGradient>
+    <linearGradient id="wing" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#2bd9b4" stop-opacity="0"/><stop offset=".45" stop-color="#2bd9b4" stop-opacity=".38"/><stop offset="1" stop-color="#6cc0ff" stop-opacity=".85"/></linearGradient>
+    <radialGradient id="sun" cx="0.83" cy="0.27" r="0.5"><stop offset="0" stop-color="#ffb84d" stop-opacity=".38"/><stop offset="1" stop-color="#ffb84d" stop-opacity="0"/></radialGradient>
+    <radialGradient id="core"><stop offset="0" stop-color="#fff6dd"/><stop offset="1" stop-color="#ffb84d"/></radialGradient>
+    <path id="swoop" d="M-140 1060 C 380 800 1020 420 1600 280 L 1586 336 C 1020 480 420 880 -140 1060 Z"/>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#sun)"/>
+  <g fill="#fff"><circle cx="220" cy="140" r="2.6" opacity=".6"/><circle cx="520" cy="80" r="2" opacity=".45"/><circle cx="860" cy="190" r="2.2" opacity=".5"/><circle cx="1180" cy="90" r="2.6" opacity=".55"/><circle cx="1700" cy="620" r="2.2" opacity=".4"/><circle cx="360" cy="420" r="2" opacity=".35"/><circle cx="1480" cy="860" r="2" opacity=".35"/></g>
+  <use xlink:href="#swoop" href="#swoop" fill="#4aa8ff" fill-opacity=".14" transform="rotate(7 -140 1060)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="url(#wing)" fill-opacity=".55" transform="rotate(3.5 -140 1060)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="url(#wing)"/>
+  <use xlink:href="#swoop" href="#swoop" fill="#fff" fill-opacity=".07" transform="translate(-140 1060) rotate(-4) scale(.92) translate(140 -1060)"/>
+  <circle cx="1600" cy="284" r="150" fill="#ffb84d" fill-opacity=".10"/>
+  <path d="M1600 232 L1609 275 L1652 284 L1609 293 L1600 336 L1591 293 L1548 284 L1591 275 Z" fill="#ffb84d" opacity=".95"/>
+  <circle cx="1600" cy="284" r="14" fill="url(#core)"/>
+<defs>
+<filter id="glow" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<linearGradient id="rule" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#2bd9b4"/><stop offset="1" stop-color="#2bd9b4" stop-opacity="0"/></linearGradient>
+<linearGradient id="txt" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9fe9ff"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+</defs><g filter="url(#glow)"><text x="1814" y="1000" text-anchor="end" font-family="Michroma" font-size="46" letter-spacing="10" fill="#ffffff">SOARIX<tspan font-size="30" fill="#2bd9b4" dx="10">OS</tspan></text></g>
+<path d="M1872 944 L1878 972 L1906 978 L1878 984 L1872 1012 L1866 984 L1838 978 L1866 972 Z" fill="#ffb84d" opacity=".95" transform="translate(-14 0)"/></svg>
