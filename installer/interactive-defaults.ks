@@ -38,7 +38,7 @@ for d in $etcs; do
   fi
 done
 umount /var/tmp >/dev/null 2>&1 || true
-rm -rf /mnt/sysroot/.soarix-staging >/dev/null 2>&1 || true
+rm -rf /mnt/sysimage/.soarix-staging /mnt/sysroot/.soarix-staging >/dev/null 2>&1 || true
 %end
 
 # List what was installed (shown in the installer's program log)
