@@ -1,0 +1,34 @@
+{
+  "_about": "Which Soarix edition gets what. Build a feature once, in the folder that fits it best, and every edition that should have it receives it automatically. See editions/README.md.",
+
+  "inherits": {"desktop": "core", "server": "desktop"},
+
+  "tiers": [
+    {"folder": "system_files", "tier": "core",    "note": "tools and settings every edition has (command line included)"},
+    {"folder": "desktop-extra", "tier": "desktop", "note": "the graphical desktop, its windows, icons and wallpapers; the server edition includes the desktop"},
+    {"folder": "server",        "tier": "server",  "note": "hosting tools that only the server edition has"}
+  ],
+
+  "only_these_subfolders": ["usr", "etc"],
+  "executable_folders": ["usr/bin", "usr/libexec"],
+
+  "exceptions": {
+    "desktop-extra/usr/share/applications/soarix-services.desktop": ["server"],
+    "desktop-extra/usr/share/icons/hicolor/scalable/apps/soarix-services.svg": ["server"]
+  },
+
+  "packages": [
+    {"name": "network toolkit (every edition)", "tier": "core",
+     "packages": ["bind-utils", "traceroute", "mtr", "nmap", "iperf3", "ethtool", "whois", "net-tools", "nmap-ncat", "socat", "tcpdump",
+                  "iftop", "nload", "nethogs", "bmon", "speedtest-cli", "iw", "arp-scan", "NetworkManager-tui", "NetworkManager-wifi",
+                  "avahi-tools", "conntrack-tools", "ipcalc"]},
+    {"name": "desktop network extras", "tier": "desktop",
+     "packages": ["NetworkManager-l2tp", "NetworkManager-vpnc", "NetworkManager-ssh", "wireshark-cli"]}
+  ],
+
+  "after_install": {
+    "desktop": ["gtk-update-icon-cache -f /usr/share/icons/hicolor"]
+  },
+
+  "who_decides": "The license key decides which edition image a computer may download (the license server refuses the rest). Inside an edition, every tool built for it or for an edition below it is included."
+}
