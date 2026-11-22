@@ -6,6 +6,7 @@
   soarix-app essentials   install the recommended everyday apps
   soarix-app datetime     time zone, 12 or 24 hour clock, automatic time
   soarix-app sysinfo      about this computer, switch edition, upgrade the license
+  soarix-app services     (Server edition) turn the hosting services on and off
 
 Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
 password in a Soarix box (it is used only for that task and is never stored).
@@ -82,6 +83,7 @@ check:checked { background-image: none; background-color: #ACC; border-color: #A
 .approw:hover { border-color: #3a4f7a; }
 .tag { background: rgba(95,194,122,0.16); color: #5fc27a; border-radius: 8px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
 expander title { color: #8ea2c4; }
+.tag.tag-off { background: rgba(142,162,196,0.14); color: #8ea2c4; }
 switch { background-image: none; background-color: #1b2a4a; border: 1px solid #2f4268; border-radius: 14px; }
 switch:checked { background-color: #ACC; border-color: #ACC; }
 switch slider { background-image: none; background-color: #e6edf7; border-radius: 50%; border: none; box-shadow: none; min-width: 22px; min-height: 22px; }
@@ -601,11 +603,17 @@ class DateTimePage(Page):
         grid.attach(label("24-hour (military) time", "label-val"), 0, 1, 2, 1)
         grid.attach(self.sw24, 2, 1, 1, 1)
 
+        self.swbar = Gtk.Switch(valign=Gtk.Align.CENTER, halign=Gtk.Align.END)
+        self.swbar.set_active(bool(dt_load().get("show_clock", True)))
+        self.swbar.connect("notify::active", lambda *_: self.on_bar())
+        grid.attach(label("Show the date and time in the top bar", "label-val"), 0, 2, 2, 1)
+        grid.attach(self.swbar, 2, 2, 1, 1)
+
         self.swntp = Gtk.Switch(valign=Gtk.Align.CENTER, halign=Gtk.Align.END)
         self.swntp.set_active(timedatectl("NTP") == "yes")
         self.swntp.connect("notify::active", lambda *_: self.on_ntp())
-        grid.attach(label("Set the time automatically from the internet", "label-val"), 0, 2, 2, 1)
-        grid.attach(self.swntp, 2, 2, 1, 1)
+        grid.attach(label("Set the time automatically from the internet", "label-val"), 0, 3, 2, 1)
+        grid.attach(self.swntp, 2, 3, 1, 1)
 
         self.manual = Gtk.Box(spacing=10)
         self.date_in = Gtk.Entry(placeholder_text="YYYY-MM-DD", max_width_chars=12)
@@ -618,9 +626,9 @@ class DateTimePage(Page):
         self.manual.append(self.date_in)
         self.manual.append(self.time_in)
         self.manual.append(self.set_btn)
-        grid.attach(label("Date and time", "label-val"), 0, 3, 1, 1)
-        grid.attach(self.manual, 1, 3, 2, 1)
-        self.manual_row = [grid.get_child_at(0, 3), self.manual]
+        grid.attach(label("Date and time", "label-val"), 0, 4, 1, 1)
+        grid.attach(self.manual, 1, 4, 2, 1)
+        self.manual_row = [grid.get_child_at(0, 4), self.manual]
         self.root.append(grid)
 
         self.state = self.log_area(110)
@@ -653,6 +661,16 @@ class DateTimePage(Page):
                          stderr=subprocess.DEVNULL, start_new_session=True)
         self.tick()
         self.status.set_text("Clock format saved. The top bar and the lock screen use it.")
+
+    def on_bar(self):
+        if self.quiet:
+            return
+        d = dt_load()
+        d["show_clock"] = self.swbar.get_active()
+        dt_save(d)
+        subprocess.Popen(["soarix-appearance", "restart-bar"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        self.status.set_text("The date and time are %s in the top bar." % ("shown" if self.swbar.get_active() else "hidden"))
 
     def run_admin(self, cmd, why, busy_text, done_text, after=None):
         def go():
@@ -743,15 +761,32 @@ class SysInfoPage(Page):
                         "The change starts after a restart. Your license must include the edition.", "sub", wrap=True))
         btns = Gtk.Box(spacing=10)
         self.ed_btns = []
-        for key, name in (("core", "Command line"), ("desktop", "Desktop"), ("server", "Server")):
-            here = info.get("edition") == name
-            b = Gtk.Button(label=name + ("   (this one)" if here else ""))
-            b.set_sensitive(not here)
+        self.ed_list = (("core", "Command line"), ("desktop", "Desktop"), ("server", "Server"))
+        for key, name in self.ed_list:
+            b = Gtk.Button(label=name)
             b.connect("clicked", lambda _b, k=key, n=name: self.switch(k, n))
             btns.append(b)
             self.ed_btns.append(b)
         ed.append(btns)
         col.append(ed)
+
+        if os.path.exists("/usr/bin/niri"):
+            st = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+            st.append(label("How Soarix starts", "heading"))
+            st.append(label("Choose what you see after a restart: the command line (the web console at port 9090 is always there) or the "
+                            "graphical desktop. You can switch back at any time.", "sub", wrap=True))
+            row = Gtk.Box(spacing=10)
+            self.start_btns = []
+            for key, name in (("off", "Command line"), ("on", "Desktop")):
+                b = Gtk.Button(label=name)
+                b.connect("clicked", lambda _b, k=key, n=name: self.start_mode(k, n))
+                row.append(b)
+                self.start_btns.append((b, key))
+            st.append(row)
+            self.start_note = label("", "sub", wrap=True)
+            st.append(self.start_note)
+            col.append(st)
+            self.show_start_mode()
 
         up = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
         up.append(label("Upgrade your license", "heading"))
@@ -769,6 +804,7 @@ class SysInfoPage(Page):
 
         self.state = self.log_area(120)
         self.root.append(self.state)
+        self.sync_buttons(info)
         self.banner = mk(Gtk.Box(spacing=14), "banner")
         msg = label("The new edition is ready. Restart to start it.", "status", wrap=True)
         msg.set_hexpand(True)
@@ -778,6 +814,31 @@ class SysInfoPage(Page):
         self.banner.append(rb)
         self.banner.set_visible(False)
         self.root.append(self.banner)
+
+    def show_start_mode(self):
+        cur = subprocess.run(["systemctl", "get-default"], capture_output=True, text=True).stdout.strip()
+        desktop = cur == "graphical.target"
+        for b, key in self.start_btns:
+            here = (key == "on") == desktop
+            b.set_sensitive(not here)
+            b.set_label(("Desktop" if key == "on" else "Command line") + ("   (now)" if here else ""))
+
+    def start_mode(self, key, name):
+        def after(rc):
+            self.show_start_mode()
+            self.status.set_text(("%s will start at the next restart." % name) if rc == 0 else "That did not work (see the details).")
+        self.admin(["soarix-desktop", key, "--next-boot"], "Soarix needs your password to change how it starts.",
+                   "Saving ...", after)
+
+    def sync_buttons(self, info=None):
+        """Edition buttons: the current one and the ones the license does not include are not clickable."""
+        info = info or self.load_info()
+        lic = info.get("licensed")  # None = not known yet, so the command itself decides
+        for b, (key, name) in zip(self.ed_btns, self.ed_list):
+            here = info.get("edition") == name
+            blocked = lic is not None and key not in lic
+            b.set_sensitive(not here and not blocked)
+            b.set_label(name + ("   (this one)" if here else ("   (needs an upgraded key)" if blocked else "")))
 
     def load_info(self):
         try:
@@ -804,9 +865,7 @@ class SysInfoPage(Page):
             def on_done(rc, err):
                 self.busy(False)
                 self.key_btn.set_sensitive(True)
-                cur = self.load_info().get("edition")
-                for b, name in zip(self.ed_btns, ("Command line", "Desktop", "Server")):
-                    b.set_sensitive(name != cur)
+                self.sync_buttons()
                 if done:
                     done(rc)
             self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
@@ -835,8 +894,191 @@ class SysInfoPage(Page):
         self.admin(["soarix-edition", "upgrade", k], "Soarix needs your password to change the license.", "Checking the key ...", after)
 
 
+class ServicesPage(Page):
+    TITLE = "Server Services"
+    SIZE = (800, 820)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Server Services", "Turn the hosting pieces on and off. Nothing runs until you turn it on.")
+        self.quiet = True
+        self.rows = {}
+        top = Gtk.Box(spacing=12)
+        note = label("Manage opens a window for each service. For sites, mail domains, DNS zones and databases, use the NovaCPX add-on (coming) or the web console.", "sub", wrap=True)
+        note.set_hexpand(True)
+        top.append(note)
+        wc = Gtk.Button(label="Open the web console")
+        wc.connect("clicked", lambda *_: subprocess.Popen(["xdg-open", "https://localhost:9090"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        top.append(wc)
+        self.root.append(top)
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for g in self.groups():
+            row = mk(Gtk.Box(spacing=14), "approw")
+            sw = Gtk.Switch(valign=Gtk.Align.CENTER)
+            sw.set_active(bool(g["on"]))
+            sw.connect("notify::active", lambda _s, _p, grp=g: self.toggled(grp))
+            row.append(sw)
+            txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            txt.append(label(g["description"], "label-val", wrap=True))
+            ports = ("Opens: " + ", ".join(g["firewall"])) if g["firewall"] else "No ports opened"
+            txt.append(label("%s   %s" % (g["group"], ports), "sub", wrap=True))
+            row.append(txt)
+            state = label("", "tag")
+            row.append(state)
+            mb = Gtk.Button(label="Manage")
+            mb.connect("clicked", lambda _b, grp=g: GroupWindow(self, grp).present())
+            row.append(mb)
+            col.append(row)
+            self.rows[g["group"]] = (sw, state)
+        scroll.set_child(col)
+        self.root.append(scroll)
+        self.state = self.log_area(110)
+        self.root.append(self.state)
+        self.refresh()
+        self.quiet = False
+
+    def groups(self):
+        try:
+            return json.loads(subprocess.run(["soarix-server", "list", "--json"], capture_output=True, text=True, timeout=60).stdout)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return []
+
+    def refresh(self):
+        self.quiet = True
+        for g in self.groups():
+            sw, st = self.rows[g["group"]]
+            sw.set_active(bool(g["on"]))
+            running = [u["unit"] for u in g["units"] if u["state"] == "active"]
+            st.set_text("Running" if running else ("On, not running" if g["on"] else "Off"))
+            if running or g["on"]:
+                st.remove_css_class("tag-off")
+            else:
+                st.add_css_class("tag-off")
+        self.quiet = False
+
+    def toggled(self, g):
+        if self.quiet:
+            return
+        sw, _ = self.rows[g["group"]]
+        want = sw.get_active()
+        name = g["group"]
+        if want:
+            cmd = "soarix-server enable %s" % name
+            if g["firewall"]:
+                cmd += " && soarix-server firewall %s" % name
+            busy = "Turning on %s ..." % name
+            done = "%s is on%s." % (name, (" and its ports (%s) are open" % ", ".join(g["firewall"])) if g["firewall"] else "")
+        else:
+            cmd, busy, done = "soarix-server disable %s" % name, "Turning off %s ..." % name, "%s is off." % name
+
+        def go():
+            self.log_clear()
+            self.busy(True, busy)
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.refresh()
+                self.status.set_text(done if rc == 0 else "That did not finish (see the details).")
+            self.runner.run(["sh", "-c", cmd], on_line, on_done, admin=True, password=self.password)
+
+        def cancelled_check():
+            go()
+        if self.password is None:
+            self.need_password("Soarix needs your password to change a server service.", cancelled_check)
+        else:
+            go()
+
+
+CHECKS = {
+    "web": "nginx -t && php-fpm -t",
+    "apache": "httpd -t && php-fpm -t",
+    "dns": "unbound-checkconf",
+    "ns": "named-checkconf",
+    "mail": "postfix check",
+    "proxy": "haproxy -c -f /etc/haproxy/haproxy.cfg",
+    "security": "fail2ban-client -t",
+}
+
+
+class GroupWindow(Gtk.Window):
+    """Start, stop, restart, check the settings and read the recent log of one server service group."""
+
+    def __init__(self, page, g):
+        super().__init__(transient_for=page, title=g["description"])
+        mk(self, "soarix-dialog")
+        self.page, self.g = page, g
+        self.units = ["%s.service" % u["unit"] for u in g["units"]]
+        self.set_default_size(720, 580)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(22)
+        box.append(label(g["description"], "heading", wrap=True))
+        box.append(label("Services: " + ", ".join(u["unit"] for u in g["units"]) +
+                         (("      Ports: " + ", ".join(g["firewall"])) if g["firewall"] else ""), "sub", wrap=True))
+        row = Gtk.Box(spacing=10)
+        for text, verb in (("Start", "start"), ("Stop", "stop"), ("Restart", "restart")):
+            b = mk(Gtk.Button(label=text), "primary") if verb == "restart" else Gtk.Button(label=text)
+            b.connect("clicked", lambda _b, v=verb: self.run_cmd("systemctl %s %s" % (v, " ".join(self.units)), "%s ..." % text))
+            row.append(b)
+        if g["group"] in CHECKS:
+            cb = mk(Gtk.Button(label="Check the settings"), "accent")
+            cb.connect("clicked", lambda *_: self.run_cmd(CHECKS[g["group"]], "Checking the settings ..."))
+            row.append(cb)
+        lb = Gtk.Button(label="Show the recent log")
+        lb.connect("clicked", lambda *_: self.run_cmd("journalctl -n 80 --no-pager " + " ".join("-u " + u for u in self.units), "Reading the log ..."))
+        row.append(lb)
+        box.append(row)
+        self.status = label("", "status", wrap=True)
+        box.append(self.status)
+        self.progress = Gtk.ProgressBar()
+        self.progress.set_visible(False)
+        box.append(self.progress)
+        self.view = mk(Gtk.TextView(editable=False, cursor_visible=False, monospace=True), "log")
+        self.view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.view.set_left_margin(10)
+        self.view.set_right_margin(10)
+        sw = mk(Gtk.ScrolledWindow(vexpand=True), "logbox")
+        sw.set_child(self.view)
+        box.append(sw)
+        close = Gtk.Button(label="Close", halign=Gtk.Align.END)
+        close.connect("clicked", lambda *_: self.close())
+        box.append(close)
+        self.set_child(box)
+        self.pulse_id = None
+
+    def say(self, text):
+        b = self.view.get_buffer()
+        b.insert(b.get_end_iter(), text + "\n")
+
+    def run_cmd(self, cmd, busy_text):
+        def go():
+            self.view.get_buffer().set_text("")
+            self.status.set_text(busy_text)
+            self.progress.set_visible(True)
+            self.pulse_id = GLib.timeout_add(120, lambda: (self.progress.pulse(), True)[1])
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.say(ln)
+
+            def on_done(rc, err):
+                if self.pulse_id is not None:
+                    GLib.source_remove(self.pulse_id)
+                    self.pulse_id = None
+                self.progress.set_visible(False)
+                self.status.set_text("Done." if rc == 0 else "That reported a problem (see below).")
+                self.page.refresh()
+            self.page.runner.run(["sh", "-c", cmd], on_line, on_done, admin=True, password=self.page.password)
+        self.page.need_password("Soarix needs your password to manage this service.", go)
+
+
 PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage,
-         "sysinfo": SysInfoPage}
+         "sysinfo": SysInfoPage, "services": ServicesPage}
 
 
 def main():

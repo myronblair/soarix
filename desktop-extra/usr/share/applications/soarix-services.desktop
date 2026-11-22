@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Server Services
+Comment=Turn web, database, mail, DNS, FTP and other server services on and off
+Exec=soarix-window services
+TryExec=soarix-server
+Icon=soarix-services
+Categories=System;Settings;
+Keywords=server;services;web;nginx;apache;database;mysql;mail;dns;ftp;hosting;

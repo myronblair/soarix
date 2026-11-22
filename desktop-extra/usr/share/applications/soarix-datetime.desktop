@@ -3,6 +3,6 @@ Type=Application
 Name=Date & Time
 Comment=Time zone, 12 or 24 hour clock, automatic time
 Exec=soarix-window datetime
-Icon=preferences-system-time
+Icon=soarix-datetime
 Categories=Settings;System;
 Keywords=time;date;clock;zone;timezone;military;24 hour;12 hour;ntp;

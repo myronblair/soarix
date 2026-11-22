@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Soarix Web Console
+Comment=Manage this computer from the browser
+Exec=soarix-window console
+Icon=soarix
+Categories=System;Settings;

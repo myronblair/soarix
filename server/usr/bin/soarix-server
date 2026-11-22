@@ -2,13 +2,15 @@
 """soarix-server - turn the hosting stack's pieces on and off.
 
   soarix-server list                 every group and whether it is running
+  soarix-server list --json          the same for other programs (the Server Services window)
   soarix-server enable web db        start now and at every boot
   soarix-server disable ftp
   soarix-server status
 
-Groups: web  dns  ns  db  ftp  mail  cache  proxy  share  java  security
+Groups: web apache dns ns nsd pdns db ftp pureftp mail cache proxy share java security docker antivirus spam monitor sync cron
 Open the right firewall ports with:  soarix-server firewall <group>
 """
+import json
 import os
 import shutil
 import subprocess
@@ -29,6 +31,15 @@ GROUPS = {
     "share": ("File sharing (Samba, NFS)", ["smb.service", "nfs-server.service"], ["samba", "nfs"]),
     "java": ("Java web apps (Tomcat)", ["tomcat.service"], []),
     "security": ("Brute-force protection (fail2ban)", ["fail2ban.service"], []),
+    "docker": ("Docker containers (Docker Engine and Compose)", ["docker.service"], []),
+    "antivirus": ("Antivirus (ClamAV scanner and signature updates)", ["clamd@scan.service", "clamav-freshclam.service"], []),
+    "spam": ("Spam filtering (SpamAssassin)", ["spamassassin.service"], []),
+    "nsd": ("Authoritative name server (NSD) - use instead of BIND", ["nsd.service"], ["dns"]),
+    "pdns": ("Name server (PowerDNS authoritative and recursor) - use instead of BIND", ["pdns.service", "pdns-recursor.service"], ["dns"]),
+    "pureftp": ("FTP server (Pure-FTPd) - use instead of vsftpd", ["pure-ftpd.service"], ["ftp"]),
+    "monitor": ("Monitoring (Prometheus, node exporter, Grafana)", ["prometheus.service", "prometheus-node-exporter.service", "grafana-server.service"], []),
+    "sync": ("File sync (lsyncd)", ["lsyncd.service"], []),
+    "cron": ("Scheduled jobs (cron)", ["crond.service"], []),
 }
 
 
@@ -53,6 +64,35 @@ def listing():
         print("  %-9s %-52s %s" % (g, d, " ".join(st)))
 
 
+def enabled(unit):
+    return sh(["systemctl", "is-enabled", unit], quiet=True).stdout.strip() == "enabled"
+
+
+def listing_json():
+    out = []
+    for g, (d, units, fw) in GROUPS.items():
+        us = [{"unit": u.replace(".service", ""), "state": state(u), "enabled": enabled(u)} for u in units]
+        out.append({"group": g, "description": d, "units": us, "firewall": fw,
+                    "on": any(x["state"] == "active" or x["enabled"] for x in us)})
+    print(json.dumps(out))
+
+
+def close_unused_ports(groups):
+    """After turning groups off, close the firewall ports no other running group still needs."""
+    still = set()
+    for g, (_, units, fw) in GROUPS.items():
+        if g not in groups and any(state(u) == "active" or enabled(u) for u in units):
+            still.update(fw)
+    closed = False
+    for g in groups:
+        for s in GROUPS[g][2]:
+            if s not in still:
+                sh(["firewall-cmd", "--permanent", "--remove-service=" + s], quiet=True)
+                closed = True
+    if closed:
+        sh(["firewall-cmd", "--reload"], quiet=True)
+
+
 def pick(names):
     bad = [n for n in names if n not in GROUPS]
     if bad or not names:
@@ -64,7 +104,10 @@ def main(a):
     if not a or a[0] in ("-h", "--help", "help"):
         print(__doc__)
     elif a[0] in ("list", "status"):
-        listing()
+        if "--json" in a:
+            listing_json()
+        else:
+            listing()
     elif a[0] == "enable":
         need_root()
         for g in pick(a[1:]):
@@ -74,10 +117,12 @@ def main(a):
             print("enabled", g)
     elif a[0] == "disable":
         need_root()
-        for g in pick(a[1:]):
+        names = pick(a[1:])
+        for g in names:
             for u in GROUPS[g][1]:
                 sh(["systemctl", "disable", "--now", u])
             print("disabled", g)
+        close_unused_ports(names)
     elif a[0] == "firewall":
         need_root()
         for g in pick(a[1:]):

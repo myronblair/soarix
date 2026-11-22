@@ -112,21 +112,28 @@ def bar_css(conf):
     return BAR_USER_CSS
 
 
-def clock24():
+def dt_setting(key, default):
     try:
-        return bool(json.load(open(DATETIME)).get("clock24", False))
+        return json.load(open(DATETIME)).get(key, default)
     except (OSError, ValueError):
-        return False
+        return default
+
+
+def clock24():
+    return bool(dt_setting("clock24", False))
 
 
 def bar_config():
     """The bar settings with the clock in the chosen format (12-hour by default, or 24-hour)."""
     d = json.load(open(BAR_CONFIG))
+    # The bar understands standard date codes only (no "%-d" style), so the day uses %e (space padded)
     if clock24():
-        d["clock"]["format"] = "{:%a %b %-d   %H:%M}"
+        d["clock"]["format"] = "{:%a %b %e   %H:%M}"
     else:
-        d["clock"]["format"] = "{:%a %b %-d   %-I:%M %p}"
-    d["clock"]["tooltip-format"] = "{:%A, %B %-d, %Y}"
+        d["clock"]["format"] = "{:%a %b %e   %I:%M %p}"
+    d["clock"]["tooltip-format"] = "{:%A, %B %e, %Y}"
+    if not dt_setting("show_clock", True) and "clock" in d.get("modules-right", []):
+        d["modules-right"].remove("clock")
     os.makedirs(os.path.dirname(BAR_USER_CONFIG), exist_ok=True)
     with open(BAR_USER_CONFIG, "w") as f:
         json.dump(d, f, indent=2)

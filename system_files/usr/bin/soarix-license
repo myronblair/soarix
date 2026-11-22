@@ -23,6 +23,7 @@ import uuid
 HOST = "licensing.tomtomenterprises.com"
 API = "https://%s/api/v1/soarix" % HOST
 LIC = "/etc/soarix/license.json"
+EDITIONS_FILE = "/etc/soarix/editions"  # just the edition names, readable by everyone
 SID = "/etc/soarix/server.id"
 AUTH = "/etc/ostree/auth.json"
 GRACE = 30 * 86400
@@ -70,6 +71,17 @@ def save(d):
     fd = os.open(LIC, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(d, f)
+    write_editions(d)
+
+
+def write_editions(d):
+    """A plain list of the licensed edition names, readable by everyone (it holds no key)."""
+    try:
+        with open(EDITIONS_FILE, "w") as f:
+            f.write(" ".join(d.get("editions", [])) + "\n")
+        os.chmod(EDITIONS_FILE, 0o644)
+    except OSError:
+        pass
 
 
 def write_auth(token):
@@ -175,6 +187,8 @@ def cmd_status():
     if not d.get("token"):
         print("Not licensed. Activate with:  sudo soarix-license activate KEY")
         return 1
+    if os.geteuid() == 0:
+        write_editions(d)
     print("Status         : %s" % d.get("status", "unknown"))
     print("Licensed for   : %s" % ", ".join(d.get("editions", [])))
     print("This edition   : %s" % own_edition())

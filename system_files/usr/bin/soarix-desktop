@@ -3,6 +3,7 @@
 #
 #   sudo soarix-desktop on       get the desktop (downloads it the first time), then start it
 #   sudo soarix-desktop off      back to the command line
+#   sudo soarix-desktop on --next-boot / off --next-boot   choose for the next restart only
 #   soarix-desktop status
 #
 # Soarix installs as a small command-line system. The desktop is a separate download delivered
@@ -22,6 +23,7 @@ case "${1:-status}" in
     if installed; then
       systemctl set-default graphical.target
       systemctl enable greetd.service >/dev/null 2>&1 || true
+      if [ "$2" = "--next-boot" ]; then echo "The desktop will start at the next restart."; exit 0; fi
       echo "Starting the Soarix desktop ... (to return to the command line: sudo soarix-desktop off)"
       systemctl start greetd.service
     else
@@ -45,6 +47,7 @@ case "${1:-status}" in
     need_root off
     systemctl set-default multi-user.target
     systemctl disable greetd.service >/dev/null 2>&1 || true
+    if [ "$2" = "--next-boot" ]; then echo "The command line will start at the next restart."; exit 0; fi
     systemctl stop greetd.service 2>/dev/null || true
     systemctl start getty@tty1.service 2>/dev/null || true
     echo "The desktop is off. You are at the command line. (Turn it back on: sudo soarix-desktop on)"

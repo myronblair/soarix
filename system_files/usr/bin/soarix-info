@@ -97,6 +97,12 @@ def uptime():
     return ("%d days " % d if d else "") + ("%d hours " % h if h or d else "") + "%d minutes" % m
 
 
+def licensed():
+    """The editions this computer's license covers, or None when that is not known yet."""
+    t = read("/etc/soarix/editions").split()
+    return t or None
+
+
 def facts():
     rel = osrel()
     name, cores = cpu()
@@ -120,6 +126,7 @@ def facts():
         "graphics": "; ".join(graphics()) or "unknown",
         "network": addresses(),
         "kernel": os.uname().release,
+        "licensed": licensed(),
         "uptime": uptime(),
     }
 

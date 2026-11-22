@@ -1,11 +1,12 @@
-# Soarix Server: the Soarix base plus a complete traditional hosting stack.
+# Soarix Server: the Soarix desktop image (so the desktop, wallpaper and every Soarix app are included)
+# plus a complete traditional hosting stack.
 # Everything is installed but switched off; turn pieces on with `soarix-server enable <group>`.
-ARG BASE=localhost/soarix:latest
+ARG BASE=localhost/soarix-desktop:latest
 FROM scratch AS ctx
 COPY server /
 
 FROM ${BASE}
-ARG SOARIX_VERSION=0.3.0
+ARG SOARIX_VERSION=0.3.1
 LABEL org.opencontainers.image.source="https://github.com/myronblair/soarix" \
       org.opencontainers.image.version="${SOARIX_VERSION}"
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
