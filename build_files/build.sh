@@ -42,7 +42,7 @@ dnf5 -y install \
     mtr traceroute nmap-ncat bind-utils
 
 ### Soarix tools: language runtimes, OS/app updater, desktop switch
-chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/bin/soarix-license /usr/bin/soarix-hardware /usr/bin/soarix-info /usr/bin/soarix-edition /usr/bin/soarix-admin-mode /usr/libexec/soarix-firstboot-desktop
+chmod 0755 /usr/bin/soarix-runtime /usr/bin/soarix-update /usr/bin/soarix-desktop /usr/bin/soarix-license /usr/bin/soarix-hardware /usr/bin/soarix-info /usr/bin/soarix-edition /usr/bin/soarix-admin-mode /usr/bin/soarix-programs /usr/libexec/soarix-firstboot-desktop
 systemctl enable soarix-update.timer soarix-firstboot-desktop.service soarix-hostname.service cockpit.socket
 
 # Hardware and everyday services on by default. Sharing and remote access stay OFF until the owner turns them on
@@ -57,6 +57,8 @@ printf '[zram0]\nzram-size = min(ram / 2, 4096)\ncompression-algorithm = zstd\n'
 systemctl --global enable soarix-update-apps.timer
 # Soarix starts at the command line
 systemctl set-default multi-user.target
+# Network toolkit for every edition (anything Fedora does not ship is skipped)
+dnf5 -y install --skip-unavailable bind-utils traceroute mtr nmap iperf3 ethtool whois net-tools nmap-ncat socat tcpdump iftop nload nethogs bmon speedtest-cli iw arp-scan NetworkManager-tui NetworkManager-wifi avahi-tools conntrack-tools ipcalc
 
 ### Identity: make every user-visible name say Soarix
 VER="$(cat /ctx/VERSION)"

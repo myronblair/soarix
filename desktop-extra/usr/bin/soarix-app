@@ -13,6 +13,7 @@
   soarix-app printers     add printers, default printer, test page
   soarix-app devices      find the devices on your network
   soarix-app users        add people, passwords, administrators
+  soarix-app programs     add and remove apps
 
 Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
 password in a Soarix box (it is used only for that task and is never stored).
@@ -1226,6 +1227,21 @@ class AppearancePage(Page):
         ac.append(arow)
         col.append(ac)
 
+        wn = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        wn.append(label("Windows", "heading"))
+        wn.append(label("Choose how new windows open. Side by side keeps everything in a row you scroll through. Overlapping lets you "
+                        "drag windows around and stack them like a traditional desktop. You can also press Super+V to float or "
+                        "tile one window.", "sub", wrap=True))
+        wrow = Gtk.Box(spacing=10)
+        self.win_btns = {}
+        for key, text in (("tiled", "Side by side"), ("floating", "Overlapping")):
+            b = Gtk.Button(label=text)
+            b.connect("clicked", lambda _b, k=key: self.pick_windows(k))
+            wrow.append(b)
+            self.win_btns[key] = b
+        wn.append(wrow)
+        col.append(wn)
+
         rb = Gtk.Button(label="Reset to the Soarix defaults", halign=Gtk.Align.START)
         rb.connect("clicked", lambda *_: self.reset())
         col.append(rb)
@@ -1243,6 +1259,10 @@ class AppearancePage(Page):
             (b.add_css_class if k == self.st.get("theme") else b.remove_css_class)("primary")
         for n, b in self.swatches.items():
             b.set_label("\u2713" if n == self.st.get("accent") else "")
+        for k, b in self.win_btns.items():
+            on = k == self.st.get("windows", "tiled")
+            b.set_label(("Side by side" if k == "tiled" else "Overlapping") + ("   (now)" if on else ""))
+            (b.add_css_class if on else b.remove_css_class)("primary")
 
     def refresh(self, say):
         self.st = cli_json("soarix-appearance", "state") or self.st
@@ -1269,6 +1289,10 @@ class AppearancePage(Page):
     def pick_theme(self, key):
         cli("soarix-appearance", "theme", key)
         self.refresh("Theme changed. Apps that are already open may need to be reopened.")
+
+    def pick_windows(self, key):
+        cli("soarix-appearance", "windows", key)
+        self.refresh("Windows now open %s." % ("overlapping, like a traditional desktop" if key == "floating" else "side by side"))
 
     def pick_accent(self, name):
         cli("soarix-appearance", "accent", name)
@@ -1494,7 +1518,7 @@ class WifiPassword(Gtk.Window):
 
 class NetworkPage(Page):
     TITLE = "Network"
-    SIZE = (880, 900)
+    SIZE = (880, 1000)
     TOOLS = [("Ping", "Check that a computer or website answers"), ("Traceroute", "See the path to a computer"),
              ("DNS lookup", "Find the address of a name"), ("Port scan", "Which common ports are open on a computer"),
              ("Who owns it", "Look up who registered a name or address"), ("Speed test", "Measure the internet speed"),
@@ -1554,7 +1578,7 @@ class NetworkPage(Page):
         col.append(tc)
         scroll.set_child(col)
         self.root.append(scroll)
-        self.state = self.log_area(190)
+        self.state = self.log_area(140)
         self.root.append(self.state)
         self.details.set_expanded(True)
         self.details.set_visible(True)
@@ -2107,10 +2131,143 @@ class UsersPage(Page):
         dlg.present()
 
 
+class ProgramsPage(Page):
+    TITLE = "Apps & Programs"
+    SIZE = (880, 900)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Apps & Programs", "Add and remove apps. They come from Flathub and never change Soarix itself.")
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+
+        ac = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        ac.append(label("Add an app", "heading"))
+        row = Gtk.Box(spacing=10)
+        self.q = Gtk.Entry(placeholder_text="Search, for example: video, photo editor, chat", hexpand=True)
+        self.q.connect("activate", lambda *_: self.search())
+        go = mk(Gtk.Button(label="Search"), "primary")
+        go.connect("clicked", lambda *_: self.search())
+        row.append(self.q)
+        row.append(go)
+        ac.append(row)
+        self.found = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        ac.append(self.found)
+        col.append(ac)
+
+        ic = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        head = Gtk.Box(spacing=10)
+        t = label("Installed apps", "heading")
+        t.set_hexpand(True)
+        head.append(t)
+        up = Gtk.Button(label="Update all apps")
+        up.connect("clicked", lambda *_: self.admin(["flatpak", "update", "-y", "--noninteractive"], "Soarix needs your password to update apps.",
+                                                     "Updating your apps ...", "Your apps are up to date."))
+        store = Gtk.Button(label="Open the full store")
+        store.connect("clicked", lambda *_: subprocess.Popen(["soarix-store"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                              stderr=subprocess.DEVNULL, start_new_session=True))
+        head.append(up)
+        head.append(store)
+        ic.append(head)
+        self.installed_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        ic.append(self.installed_box)
+        col.append(ic)
+        scroll.set_child(col)
+        self.root.append(scroll)
+        self.state = self.log_area(110)
+        self.root.append(self.state)
+        self.ids = set()
+        self.load()
+
+    def installed(self):
+        out = []
+        for ln in out_of(["flatpak", "list", "--app", "--columns=name,application,version"], 60).splitlines():
+            p = ln.split(chr(9))
+            if len(p) >= 2 and p[1]:
+                out.append({"name": p[0], "id": p[1], "version": p[2] if len(p) > 2 else ""})
+        return out
+
+    def load(self):
+        box = self.installed_box
+        while box.get_first_child():
+            box.remove(box.get_first_child())
+        apps = self.installed()
+        self.ids = {a["id"] for a in apps}
+        for a in apps:
+            r = mk(Gtk.Box(spacing=12), "approw")
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            t.append(label(a["name"], "label-val"))
+            t.append(label("%s   %s" % (a["id"], a["version"]), "sub", wrap=True))
+            r.append(t)
+            rm = Gtk.Button(label="Remove")
+            rm.connect("clicked", lambda _b, i=a["id"], n=a["name"]: self.admin(["flatpak", "uninstall", "-y", "--noninteractive", i],
+                                                                               "Soarix needs your password to remove %s." % n, "Removing %s ..." % n,
+                                                                               "%s was removed." % n))
+            r.append(rm)
+            box.append(r)
+        if not apps:
+            box.append(label("No apps installed yet. Search above, or try Soarix Essentials.", "sub"))
+
+    def search(self):
+        term = self.q.get_text().strip()
+        if len(term) < 2:
+            self.status.set_text("Type at least two letters to search.")
+            return
+        self.busy(True, "Searching Flathub ...")
+
+        def work():
+            out = out_of(["flatpak", "search", "--columns=name,description,application", term], 60)
+            GLib.idle_add(self.show_found, out)
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_found(self, text):
+        self.busy(False)
+        box = self.found
+        while box.get_first_child():
+            box.remove(box.get_first_child())
+        rows = [ln.split(chr(9)) for ln in text.splitlines() if chr(9) in ln]
+        for p in rows[:25]:
+            if len(p) < 3:
+                continue
+            name, desc, aid = p[0], p[1], p[2]
+            r = mk(Gtk.Box(spacing=12), "approw")
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            t.append(label(name, "label-val"))
+            t.append(label(desc, "sub", wrap=True))
+            r.append(t)
+            if aid in self.ids:
+                r.append(mk(Gtk.Label(label="Installed", valign=Gtk.Align.CENTER), "tag"))
+            else:
+                b = mk(Gtk.Button(label="Install"), "primary")
+                b.connect("clicked", lambda _b, i=aid, n=name: self.admin(["flatpak", "install", "-y", "--noninteractive", "flathub", i],
+                                                                         "Soarix needs your password to install %s." % n, "Installing %s ..." % n,
+                                                                         "%s is installed. Find it in the Apps drawer." % n))
+                r.append(b)
+            box.append(r)
+        self.status.set_text(("Found %d. Press Install next to the one you want." % min(len(rows), 25)) if rows else "Nothing found. Try other words.")
+
+    def admin(self, cmd, why, busy_text, done_text):
+        def go():
+            self.log_clear()
+            self.busy(True, busy_text)
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+                self.status.set_text(ln[:140])
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.status.set_text(done_text if rc == 0 else "That did not work (see the details).")
+                self.load()
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
+        self.need_password(why, go)
+
+
 PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage,
          "sysinfo": SysInfoPage, "services": ServicesPage, "appearance": AppearancePage, "display": DisplayPage,
          "network": NetworkPage, "printers": PrintersPage,
-         "devices": DevicesPage, "users": UsersPage}
+         "devices": DevicesPage, "users": UsersPage, "programs": ProgramsPage}
 
 
 def main():

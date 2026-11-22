@@ -1,0 +1,69 @@
+#!/usr/bin/python3
+"""soarix-programs - add and remove apps (from Flathub) on any edition of Soarix.
+
+  soarix-programs list                 the apps you have installed
+  soarix-programs search WORDS         find apps you can install
+  sudo soarix-programs install ID...   install one or more apps (use the app ID shown by search)
+  sudo soarix-programs remove ID...    remove apps
+  sudo soarix-programs update          update every app
+
+Apps are sandboxed Flatpak apps. They never change the Soarix system itself, which is updated with
+Soarix Update. The desktop and server editions also have this as a window: Apps & Programs.
+"""
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+
+def flatpak(*args, quiet=False):
+    return subprocess.run(["flatpak"] + list(args), capture_output=quiet, text=True)
+
+
+def as_root():
+    if os.geteuid() != 0:
+        if shutil.which("sudo"):
+            os.execvp("sudo", ["sudo"] + sys.argv)
+        print("Run with sudo:  sudo soarix-programs %s" % " ".join(sys.argv[1:]))
+        sys.exit(1)
+
+
+def ids_ok(ids):
+    bad = [i for i in ids if not re.fullmatch(r"[A-Za-z0-9_.-]+", i) or "." not in i]
+    if bad or not ids:
+        print("Give the app ID (like org.videolan.VLC). Find it with: soarix-programs search NAME")
+        return False
+    return True
+
+
+def main(a):
+    if not shutil.which("flatpak"):
+        print("Flatpak is not installed on this computer.")
+        return 1
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    c, rest = a[0], a[1:]
+    if c == "list":
+        return flatpak("list", "--app", "--columns=name,application,version").returncode
+    if c == "search":
+        if not rest:
+            print("Usage: soarix-programs search WORDS")
+            return 2
+        return flatpak("search", "--columns=name,description,application", " ".join(rest)).returncode
+    if c == "install":
+        as_root()
+        return flatpak("install", "-y", "--noninteractive", "flathub", *rest).returncode if ids_ok(rest) else 2
+    if c == "remove":
+        as_root()
+        return flatpak("uninstall", "-y", "--noninteractive", *rest).returncode if ids_ok(rest) else 2
+    if c == "update":
+        as_root()
+        return flatpak("update", "-y", "--noninteractive").returncode
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

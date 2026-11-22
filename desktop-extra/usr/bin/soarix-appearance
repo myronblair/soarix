@@ -5,7 +5,7 @@
   soarix-appearance apply    at login: apply the saved choices (or the defaults)
   soarix-appearance bar      start the top bar with the chosen accent color (used at login)
   soarix-appearance restart-bar   apply the clock format and accent color to the bar now
-  soarix-appearance state | wallpaper PATH | theme dark|light | accent NAME | reset   (for the Appearance window)
+  soarix-appearance state | wallpaper PATH | theme dark|light | accent NAME | windows tiled|floating | reset   (for the Appearance window)
 """
 import glob
 import json
@@ -132,9 +132,29 @@ def gtk_css(conf, version):
                  ("insensitive_bg_color", p["view_bg"]), ("insensitive_fg_color", p["dim_fg"]),
                  ("insensitive_base_color", p["view_bg"]), ("borders", p["border"]), ("unfocused_borders", p["border"]),
                  ("content_view_bg", p["view_bg"]), ("text_view_bg", p["view_bg"]),
-                 ("link_color", acc), ("theme_hovering_selected_bg_color", acc)]
+                 ("link_color", acc), ("theme_hovering_selected_bg_color", acc),
+                 ("bg_color", p["window_bg"]), ("fg_color", p["window_fg"]), ("base_color", p["view_bg"]),
+                 ("text_color", p["view_fg"]), ("selected_bg_color", acc), ("selected_fg_color", p["accent_fg"]),
+                 ("unfocused_selected_bg_color", acc), ("unfocused_selected_fg_color", p["accent_fg"]),
+                 ("tooltip_bg_color", p["card_bg"]), ("tooltip_fg_color", p["window_fg"]),
+                 ("warning_color", "#e0c050"), ("error_color", "#e0605a"), ("success_color", "#5fc27a")]
     for name, val in pairs:
         n.append("@define-color %s %s;" % (name, val))
+    if version == 3:
+        n.append("window, .background, dialog, messagedialog, assistant, window.csd { background-color: %(w)s; color: %(f)s; }" % {"w": p["window_bg"], "f": p["window_fg"]})
+        n.append(".view, treeview.view, textview text, iconview, list, list row, scrolledwindow viewport, flowbox { background-color: %(v)s; color: %(vf)s; }" % {"v": p["view_bg"], "vf": p["view_fg"]})
+        n.append("row:selected, .view:selected, treeview.view:selected, iconview:selected, flowboxchild:selected { background-color: %(a)s; color: %(af)s; }" % {"a": acc, "af": p["accent_fg"]})
+        n.append("entry, spinbutton, combobox button { background-color: %(v)s; color: %(vf)s; border: 1px solid %(b)s; border-radius: 8px; }" % {"v": p["view_bg"], "vf": p["view_fg"], "b": p["border"]})
+        n.append("button { background-image: none; background-color: %(c)s; color: %(f)s; border: 1px solid %(b)s; border-radius: 8px; box-shadow: none; text-shadow: none; }" % {"c": p["card_bg"], "f": p["window_fg"], "b": p["border"]})
+        n.append("button:hover { background-image: none; border-color: %(a)s; }" % {"a": acc})
+        n.append("button:checked, button.suggested-action { background-image: none; background-color: %(a)s; color: %(af)s; }" % {"a": acc, "af": p["accent_fg"]})
+        n.append("button:disabled { color: %(d)s; }" % {"d": p["dim_fg"]})
+        n.append("menu, .popup, popover, popover.background, tooltip { background-color: %(c)s; color: %(f)s; border: 1px solid %(b)s; }" % {"c": p["card_bg"], "f": p["window_fg"], "b": p["border"]})
+        n.append("menuitem:hover, modelbutton:hover { background-color: %(a)s; color: %(af)s; }" % {"a": acc, "af": p["accent_fg"]})
+        n.append("notebook > header { background-color: %(w)s; border-color: %(b)s; } notebook > header tab { color: %(d)s; } notebook > header tab:checked { color: %(f)s; box-shadow: inset 0 -3px %(a)s; }" % {"w": p["window_bg"], "b": p["border"], "d": p["dim_fg"], "f": p["window_fg"], "a": acc})
+        n.append("scrollbar slider { background-color: %(b)s; border-radius: 6px; }" % {"b": p["dim_fg"]})
+        n.append("progressbar progress { background-color: %(a)s; } progressbar trough, scale trough { background-color: %(b)s; }" % {"a": acc, "b": p["border"]})
+        n.append("separator { background-color: %(b)s; }" % {"b": p["border"]})
     n.append("headerbar, .titlebar { background: %s; color: %s; border-bottom: 2px solid #c8963e; box-shadow: none; }" % (p["head_bg"], p["head_fg"]))
     return GTK_MARK + "\n" + "\n".join(n) + "\n"
 
@@ -227,9 +247,83 @@ def apply_all():
     conf = load()
     set_theme(conf)
     set_clock_format()
+    if windows_mode(conf) == "floating":
+        start_float_daemon()
     if conf.get("wallpaper") and wallpaper_path(conf) != os.path.join(WALLPAPERS, DEFAULT_WALLPAPER):
         set_wallpaper(wallpaper_path(conf))
     return 0
+
+
+FLOAT_CMD = ["soarix-appearance", "float-daemon"]
+
+
+def niri(*args):
+    return subprocess.run(["niri", "msg"] + list(args), capture_output=True, text=True)
+
+
+def windows_mode(conf):
+    return "floating" if conf.get("windows") == "floating" else "tiled"
+
+
+def handle_event(line, seen, float_one):
+    """One line of 'niri msg --json event-stream': float every window the first time it appears."""
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        return
+    if "WindowsChanged" in ev:
+        for w in ev["WindowsChanged"].get("windows", []):
+            seen.add(w["id"])
+    elif "WindowOpenedOrChanged" in ev:
+        w = ev["WindowOpenedOrChanged"].get("window", {})
+        if w.get("id") is not None and w["id"] not in seen:
+            seen.add(w["id"])
+            if not w.get("is_floating"):
+                float_one(w["id"])
+
+
+def float_daemon():
+    """Runs for the whole session while 'floating' is chosen: new windows open floating (overlapping)."""
+    import time
+    while windows_mode(load()) == "floating":
+        seen = set()
+        try:
+            p = subprocess.Popen(["niri", "msg", "--json", "event-stream"], stdout=subprocess.PIPE, text=True)
+            for line in p.stdout:
+                if windows_mode(load()) != "floating":
+                    p.terminate()
+                    return 0
+                handle_event(line, seen, lambda i: niri("action", "move-window-to-floating", "--id", str(i)))
+        except OSError:
+            pass
+        time.sleep(2)
+    return 0
+
+
+def start_float_daemon():
+    if subprocess.run(["pgrep", "-f", "soarix-appearance float-daemon"], capture_output=True).returncode != 0:
+        start(FLOAT_CMD)
+
+
+def set_windows(mode):
+    """Choose how windows open: side by side (tiled) or overlapping (floating). Windows already open switch too."""
+    conf = load()
+    conf["windows"] = mode
+    save(conf)
+    try:
+        wins = json.loads(niri("--json", "windows").stdout or "[]")
+    except ValueError:
+        wins = []
+    if mode == "floating":
+        start_float_daemon()
+        for w in wins:
+            if not w.get("is_floating"):
+                niri("action", "move-window-to-floating", "--id", str(w["id"]))
+    else:
+        subprocess.run(["pkill", "-f", "soarix-appearance float-daemon"], capture_output=True)
+        for w in wins:
+            if w.get("is_floating"):
+                niri("action", "move-window-to-tiling", "--id", str(w["id"]))
 
 
 def wallpaper_list():
@@ -247,7 +341,7 @@ def wallpaper_list():
 def state_json():
     conf = load()
     return {"wallpapers": wallpaper_list(), "wallpaper": wallpaper_path(conf), "theme": conf.get("theme", "dark"),
-            "accent": accent_of(conf)[1],
+            "accent": accent_of(conf)[1], "windows": windows_mode(conf),
             "accents": [{"name": g, "label": l.split()[0], "hex": h} for l, h, g in ACCENTS]}
 
 
@@ -346,6 +440,11 @@ if __name__ == "__main__":
     if a == ["state"]:
         print(json.dumps(state_json()))
         sys.exit(0)
+    if a == ["float-daemon"]:
+        sys.exit(float_daemon())
+    if len(a) == 2 and a[0] == "windows" and a[1] in ("tiled", "floating"):
+        set_windows(a[1])
+        sys.exit(0)
     if len(a) == 2 and a[0] == "wallpaper" and os.path.isfile(a[1]):
         conf = load()
         conf["wallpaper"] = a[1]
@@ -366,6 +465,8 @@ if __name__ == "__main__":
         restart_bar(conf)
         sys.exit(0)
     if a == ["reset"]:
+        if windows_mode(load()) == "floating":
+            set_windows("tiled")
         try:
             os.remove(CONF)
         except OSError:
