@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Add-ons
+Comment=Add and remove extra software that is not for the general public
+Exec=soarix-window addons
+Icon=soarix-addons
+Categories=System;Settings;PackageManager;
+Keywords=addons;add-ons;extensions;novacpx;install;remove;private;licensed;software;

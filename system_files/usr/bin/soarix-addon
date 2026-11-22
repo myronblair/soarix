@@ -1,0 +1,238 @@
+#!/usr/bin/python3
+"""soarix-addon - add and remove Soarix add-ons: software that is not for the general public.
+
+  soarix-addon list            what exists, and what your license and edition allow
+  sudo soarix-addon install ID       download and set up an add-on
+  sudo soarix-addon remove ID        take it off this computer
+  sudo soarix-addon update [ID]      get the newest version of one add-on, or of all installed ones
+  soarix-addon list --json     the same for other programs (the Add-ons window uses it)
+
+Add-ons come from the Soarix license server and need a license key that includes them. They are stored apart
+from the operating system (in /opt/soarix-addons), so Soarix updates never touch them, and removing an add-on
+leaves Soarix exactly as it was. Public apps (LibreOffice, VLC ...) are not add-ons: use the Store for those.
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+CATALOG = "/usr/share/soarix/addons"
+STATE = "/var/lib/soarix/addons.json"
+HOME = "/opt/soarix-addons"
+EDITIONS_FILE = "/etc/soarix/editions"
+VARIANTS = {"core": "core", "strip": "desktop", "server": "server"}
+EDITION_NAMES = {"core": "Command line", "desktop": "Desktop", "server": "Server"}
+AUTH = "/etc/ostree/auth.json"
+
+
+def edition():
+    vid = "core"
+    try:
+        for ln in open("/usr/lib/os-release"):
+            if ln.startswith("VARIANT_ID="):
+                vid = ln.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return VARIANTS.get(vid, "core")
+
+
+def catalog():
+    out = {}
+    for f in sorted(glob.glob(CATALOG + "/*.json")):
+        try:
+            d = json.load(open(f))
+            if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", d.get("id", "")):
+                out[d["id"]] = d
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def installed():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def licensed_features():
+    try:
+        return open(EDITIONS_FILE).read().split()
+    except OSError:
+        return None  # not known yet
+
+
+def state_of(a, inst, lic, ed):
+    if a["id"] in inst:
+        return "installed", ""
+    if a.get("status") == "coming":
+        return "coming", a.get("note", "In development.")
+    if ed not in a.get("editions", [ed]):
+        names = " or ".join(EDITION_NAMES[e] for e in a["editions"])
+        return "edition", "Needs the %s edition." % names
+    if lic is not None and a.get("license") not in lic:
+        return "key", "Needs a license key that includes this add-on."
+    return "available", ""
+
+
+def listing():
+    inst, lic, ed = installed(), licensed_features(), edition()
+    rows = []
+    for a in catalog().values():
+        st, note = state_of(a, inst, lic, ed)
+        rows.append({"id": a["id"], "name": a["name"], "description": a.get("description", ""), "state": st, "note": note,
+                     "version": inst.get(a["id"], {}).get("version", "")})
+    return rows
+
+
+def as_root():
+    if os.geteuid() != 0:
+        if shutil.which("sudo"):
+            os.execvp("sudo", ["sudo"] + sys.argv)
+        print("Run with sudo:  sudo soarix-addon %s" % " ".join(sys.argv[1:]))
+        sys.exit(1)
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, text=True, **kw)
+
+
+def hooks(a, key):
+    for cmd in a.get(key, []):
+        r = run(["sh", "-c", cmd])
+        if r.returncode != 0:
+            print("  (a step reported a problem: %s)" % cmd.split()[0])
+
+
+def save(state):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    with open(STATE, "w") as f:
+        json.dump(state, f)
+
+
+def pull(a):
+    """Download the add-on image with the license key and unpack it into /opt/soarix-addons/ID."""
+    image, dest = a["image"], os.path.join(HOME, a["id"])
+    auth = ["--authfile", AUTH] if os.path.exists(AUTH) else []
+    if run(["podman", "pull", "-q"] + auth + [image], stdout=subprocess.DEVNULL).returncode != 0:
+        return None
+    digest = subprocess.run(["podman", "image", "inspect", "--format", "{{.Digest}}", image], capture_output=True, text=True).stdout.strip()
+    version = subprocess.run(["podman", "image", "inspect", "--format", '{{index .Labels "org.opencontainers.image.version"}}', image],
+                             capture_output=True, text=True).stdout.strip()
+    cid = subprocess.run(["podman", "create", image, "/nonexistent"], capture_output=True, text=True).stdout.strip()
+    if not cid:
+        return None
+    tmp = dest + ".new"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    try:
+        p1 = subprocess.Popen(["podman", "export", cid], stdout=subprocess.PIPE)
+        ok = subprocess.run(["tar", "-x", "-C", tmp], stdin=p1.stdout).returncode == 0
+        p1.stdout.close()
+        p1.wait()
+    finally:
+        run(["podman", "rm", "-f", cid], stdout=subprocess.DEVNULL)
+    if not ok:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None
+    shutil.rmtree(dest, ignore_errors=True)
+    os.rename(tmp, dest)
+    return {"digest": digest, "version": version or time.strftime("%Y-%m-%d")}
+
+
+def cmd_install(ids, updating=False):
+    as_root()
+    cat, inst, lic, ed = catalog(), installed(), licensed_features(), edition()
+    if not ids:
+        print("Usage: sudo soarix-addon install ID   (see: soarix-addon list)")
+        return 2
+    rc = 0
+    for i in ids:
+        a = cat.get(i)
+        if not a:
+            print("There is no add-on called %s. See: soarix-addon list" % i)
+            rc = 1
+            continue
+        st, note = state_of(a, inst if not updating else {}, lic, ed)
+        if st in ("coming", "edition", "key"):
+            print("%s: %s" % (a["name"], note))
+            rc = 1
+            continue
+        if st == "installed" and not updating:
+            print("%s is already installed." % a["name"])
+            continue
+        print("%s %s ..." % ("Updating" if updating else "Downloading", a["name"]))
+        sys.stdout.flush()
+        os.makedirs(HOME, exist_ok=True)
+        got = pull(a)
+        if not got:
+            print("Could not download %s. Check the network and that your license key includes it." % a["name"])
+            rc = 1
+            continue
+        hooks(a, "after_install")
+        inst[i] = dict(got, installed_at=int(time.time()))
+        save(inst)
+        print("%s is installed%s." % (a["name"], (" (version %s)" % got["version"]) if got["version"] else ""))
+    return rc
+
+
+def cmd_remove(ids):
+    as_root()
+    cat, inst = catalog(), installed()
+    if not ids:
+        print("Usage: sudo soarix-addon remove ID")
+        return 2
+    for i in ids:
+        a = cat.get(i)
+        if i not in inst or not a:
+            print("%s is not installed." % i)
+            continue
+        hooks(a, "before_remove")
+        shutil.rmtree(os.path.join(HOME, i), ignore_errors=True)
+        inst.pop(i, None)
+        save(inst)
+        print("%s was removed." % a["name"])
+    return 0
+
+
+def cmd_update(ids):
+    as_root()
+    inst = installed()
+    targets = ids or list(inst)
+    if not targets:
+        print("No add-ons are installed.")
+        return 0
+    return cmd_install([t for t in targets if t in inst], updating=True)
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    c, rest = a[0], a[1:]
+    if c == "list":
+        rows = listing()
+        if "--json" in rest:
+            print(json.dumps(rows))
+            return 0
+        for r in rows:
+            print("%-14s %-30s %s %s" % (r["id"], r["name"], r["state"], r["note"]))
+        if not rows:
+            print("No add-ons are listed yet.")
+        return 0
+    if c == "install":
+        return cmd_install(rest)
+    if c == "remove":
+        return cmd_remove(rest)
+    if c == "update":
+        return cmd_update(rest)
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

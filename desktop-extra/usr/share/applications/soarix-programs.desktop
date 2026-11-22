@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Apps & Programs
-Comment=Add and remove apps
-Exec=soarix-window programs
-Icon=soarix-programs
-Categories=System;Settings;PackageManager;
-Keywords=apps;programs;install;uninstall;remove;add;software;flatpak;flathub;store;

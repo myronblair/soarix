@@ -133,7 +133,7 @@ def cmd_activate(a):
     if not a:
         print("Usage: sudo soarix-license activate KEY")
         return 2
-    key = a[0].strip()
+    key = (sys.stdin.readline() if a[0] == "-" else a[0]).strip()
     r = post("activate", {"license": key, "server_id": server_id(), "hostname": socket.gethostname(),
                           "version": osrel().get("VERSION_ID", ""), "os": "soarix", "edition": ed})
     if r is None:

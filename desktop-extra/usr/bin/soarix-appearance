@@ -155,6 +155,7 @@ def gtk_css(conf, version):
         n.append("scrollbar slider { background-color: %(b)s; border-radius: 6px; }" % {"b": p["dim_fg"]})
         n.append("progressbar progress { background-color: %(a)s; } progressbar trough, scale trough { background-color: %(b)s; }" % {"a": acc, "b": p["border"]})
         n.append("separator { background-color: %(b)s; }" % {"b": p["border"]})
+        n.append("notebook, notebook > stack, notebook > stack > box, notebook > stack > grid, paned, toolbar, statusbar, actionbar, infobar, stack > box, stack > grid, .sidebar, placessidebar, viewport > box { background-color: %(w)s; color: %(f)s; }" % {"w": p["window_bg"], "f": p["window_fg"]})
     n.append("headerbar, .titlebar { background: %s; color: %s; border-bottom: 2px solid #c8963e; box-shadow: none; }" % (p["head_bg"], p["head_fg"]))
     return GTK_MARK + "\n" + "\n".join(n) + "\n"
 

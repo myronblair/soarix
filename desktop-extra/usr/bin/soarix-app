@@ -13,7 +13,7 @@
   soarix-app printers     add printers, default printer, test page
   soarix-app devices      find the devices on your network
   soarix-app users        add people, passwords, administrators
-  soarix-app programs     add and remove apps
+  soarix-app addons       add and remove add-ons (software that is not public)
 
 Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
 password in a Soarix box (it is used only for that task and is never stored).
@@ -152,7 +152,7 @@ class Runner:
 
     def run(self, cmd, on_line, on_done, admin=False, password=None, extra_stdin=None):
         def work():
-            full = (["sudo", "-S", "-p", ""] + cmd) if admin else cmd
+            full = (["sudo", "-S", "-p", ""] + (["-k"] if (password and extra_stdin) else []) + cmd) if admin else cmd
             if admin and password == "":
                 full = ["sudo", "-n"] + cmd  # the system remembers the password: never wait for one
             try:
@@ -920,7 +920,7 @@ class SysInfoPage(Page):
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return {}
 
-    def admin(self, cmd, why, busy_text, done):
+    def admin(self, cmd, why, busy_text, done, stdin=None):
         def go():
             self.log_clear()
             self.banner.set_visible(False)
@@ -942,7 +942,7 @@ class SysInfoPage(Page):
                 self.sync_buttons()
                 if done:
                     done(rc)
-            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password, extra_stdin=stdin)
         self.need_password(why, go)
 
     def switch(self, key, name):
@@ -965,7 +965,7 @@ class SysInfoPage(Page):
         def after(rc):
             self.status.set_text("License updated. See the details for what it now includes." if rc == 0
                                  else (self.seen[-1] if self.seen else "That key was not accepted."))
-        self.admin(["soarix-edition", "upgrade", k], "Soarix needs your password to change the license.", "Checking the key ...", after)
+        self.admin(["soarix-edition", "upgrade", "-"], "Soarix needs your password to change the license.", "Checking the key ...", after, stdin=k + "\n")
 
 
 class ServicesPage(Page):
@@ -1484,6 +1484,37 @@ def nm_fields(line):
     return parts
 
 
+def wifi_connect(ssid, pw, timeout=45):
+    """Join a Wi-Fi network. The password is typed to nmcli on a terminal, never put on the command line
+    (other users on this computer can read command lines)."""
+    import pty
+    import select
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execvp("nmcli", ["nmcli", "--ask", "device", "wifi", "connect", ssid] if pw else ["nmcli", "device", "wifi", "connect", ssid])
+    out, sent, end = b"", False, time.time() + timeout
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 1)
+        if not r:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        out += chunk
+        if pw and not sent and re.search(rb"[Pp]assword", out):
+            os.write(fd, (pw + "\n").encode())
+            sent = True
+    try:
+        _, status = os.waitpid(pid, 0)
+        rc = os.waitstatus_to_exitcode(status)
+    except (ChildProcessError, OSError):
+        rc = 1
+    return rc, ANSI.sub("", out.decode("utf-8", "replace")).replace(pw or "\0", "")
+
+
 class WifiPassword(Gtk.Window):
     def __init__(self, parent, ssid, on_ok):
         super().__init__(transient_for=parent, modal=True, title="Wi-Fi password")
@@ -1654,17 +1685,19 @@ class NetworkPage(Page):
         def go(pw=None):
             self.log_clear()
             self.busy(True, "Connecting to %s ..." % ssid)
-            cmd = ["nmcli", "device", "wifi", "connect", ssid] + (["password", pw] if pw else [])
 
-            def on_line(ln, partial):
-                if not partial:
-                    self.log_add(ln)
+            def work():
+                rc, text = wifi_connect(ssid, pw)
+                GLib.idle_add(done, rc, text)
 
-            def on_done(rc, err):
+            def done(rc, text):
+                for ln in text.splitlines():
+                    if ln.strip():
+                        self.log_add(ln.strip())
                 self.busy(False)
                 self.status.set_text(("Connected to %s." % ssid) if rc == 0 else "Could not connect. Check the password and try again.")
                 self.load_all()
-            self.runner.run(cmd, on_line, on_done)
+            threading.Thread(target=work, daemon=True).start()
         if secured:
             WifiPassword(self, ssid, go).present()
         else:
@@ -1926,6 +1959,12 @@ class DevicesPage(Page):
         for ln in self.lines:
             m = re.match(r"Nmap scan report for (?:(\S+) \((\S+)\)|(\S+))", ln)
             if m:
+                import ipaddress
+                try:
+                    ipaddress.ip_address(m.group(2) or m.group(3))
+                except ValueError:
+                    cur = None
+                    continue
                 cur = {"name": m.group(1) or "", "ip": m.group(2) or m.group(3), "mac": "", "vendor": ""}
                 devs.append(cur)
                 continue
@@ -2131,120 +2170,74 @@ class UsersPage(Page):
         dlg.present()
 
 
-class ProgramsPage(Page):
-    TITLE = "Apps & Programs"
-    SIZE = (880, 900)
+class AddonsPage(Page):
+    TITLE = "Add-ons"
+    SIZE = (860, 780)
+    TAGS = {"installed": "Installed", "available": "Available", "coming": "Coming soon", "edition": "Other edition", "key": "Needs a key"}
 
     def __init__(self, app):
         super().__init__(app)
-        self.head("Apps & Programs", "Add and remove apps. They come from Flathub and never change Soarix itself.")
+        self.head("Add-ons", "Extra software that is not for the general public. Your license key decides what you can add.")
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
-        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-
-        ac = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
-        ac.append(label("Add an app", "heading"))
-        row = Gtk.Box(spacing=10)
-        self.q = Gtk.Entry(placeholder_text="Search, for example: video, photo editor, chat", hexpand=True)
-        self.q.connect("activate", lambda *_: self.search())
-        go = mk(Gtk.Button(label="Search"), "primary")
-        go.connect("clicked", lambda *_: self.search())
-        row.append(self.q)
-        row.append(go)
-        ac.append(row)
-        self.found = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        ac.append(self.found)
-        col.append(ac)
-
-        ic = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
-        head = Gtk.Box(spacing=10)
-        t = label("Installed apps", "heading")
-        t.set_hexpand(True)
-        head.append(t)
-        up = Gtk.Button(label="Update all apps")
-        up.connect("clicked", lambda *_: self.admin(["flatpak", "update", "-y", "--noninteractive"], "Soarix needs your password to update apps.",
-                                                     "Updating your apps ...", "Your apps are up to date."))
-        store = Gtk.Button(label="Open the full store")
-        store.connect("clicked", lambda *_: subprocess.Popen(["soarix-store"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                                              stderr=subprocess.DEVNULL, start_new_session=True))
-        head.append(up)
-        head.append(store)
-        ic.append(head)
-        self.installed_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        ic.append(self.installed_box)
-        col.append(ic)
-        scroll.set_child(col)
+        scroll.set_child(self.box)
         self.root.append(scroll)
         self.state = self.log_area(110)
         self.root.append(self.state)
-        self.ids = set()
+        row = Gtk.Box(spacing=10)
+        up = Gtk.Button(label="Update all add-ons")
+        up.connect("clicked", lambda *_: self.admin(["soarix-addon", "update"], "Soarix needs your password to update add-ons.",
+                                                     "Updating add-ons ...", "Your add-ons are up to date."))
+        store = Gtk.Button(label="Open the Store (public apps)")
+        store.connect("clicked", lambda *_: subprocess.Popen(["soarix-store"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                              stderr=subprocess.DEVNULL, start_new_session=True))
+        row.append(up)
+        row.append(store)
+        self.root.append(row)
         self.load()
 
-    def installed(self):
-        out = []
-        for ln in out_of(["flatpak", "list", "--app", "--columns=name,application,version"], 60).splitlines():
-            p = ln.split(chr(9))
-            if len(p) >= 2 and p[1]:
-                out.append({"name": p[0], "id": p[1], "version": p[2] if len(p) > 2 else ""})
-        return out
-
     def load(self):
-        box = self.installed_box
-        while box.get_first_child():
-            box.remove(box.get_first_child())
-        apps = self.installed()
-        self.ids = {a["id"] for a in apps}
-        for a in apps:
-            r = mk(Gtk.Box(spacing=12), "approw")
-            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
-            t.append(label(a["name"], "label-val"))
-            t.append(label("%s   %s" % (a["id"], a["version"]), "sub", wrap=True))
+        b = self.box
+        while b.get_first_child():
+            b.remove(b.get_first_child())
+        rows = cli_json("soarix-addon", "list", "--json")
+        rows = rows if isinstance(rows, list) else []
+        for a in rows:
+            r = mk(Gtk.Box(spacing=14), "card")
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+            t.append(label(a["name"], "heading"))
+            t.append(label(a["description"], "sub", wrap=True))
+            if a["note"]:
+                t.append(label(a["note"], "warn", wrap=True))
+            if a["version"]:
+                t.append(label("Version " + a["version"], "sub"))
             r.append(t)
-            rm = Gtk.Button(label="Remove")
-            rm.connect("clicked", lambda _b, i=a["id"], n=a["name"]: self.admin(["flatpak", "uninstall", "-y", "--noninteractive", i],
-                                                                               "Soarix needs your password to remove %s." % n, "Removing %s ..." % n,
-                                                                               "%s was removed." % n))
-            r.append(rm)
-            box.append(r)
-        if not apps:
-            box.append(label("No apps installed yet. Search above, or try Soarix Essentials.", "sub"))
-
-    def search(self):
-        term = self.q.get_text().strip()
-        if len(term) < 2:
-            self.status.set_text("Type at least two letters to search.")
-            return
-        self.busy(True, "Searching Flathub ...")
-
-        def work():
-            out = out_of(["flatpak", "search", "--columns=name,description,application", term], 60)
-            GLib.idle_add(self.show_found, out)
-        threading.Thread(target=work, daemon=True).start()
-
-    def show_found(self, text):
-        self.busy(False)
-        box = self.found
-        while box.get_first_child():
-            box.remove(box.get_first_child())
-        rows = [ln.split(chr(9)) for ln in text.splitlines() if chr(9) in ln]
-        for p in rows[:25]:
-            if len(p) < 3:
-                continue
-            name, desc, aid = p[0], p[1], p[2]
-            r = mk(Gtk.Box(spacing=12), "approw")
-            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
-            t.append(label(name, "label-val"))
-            t.append(label(desc, "sub", wrap=True))
-            r.append(t)
-            if aid in self.ids:
-                r.append(mk(Gtk.Label(label="Installed", valign=Gtk.Align.CENTER), "tag"))
-            else:
-                b = mk(Gtk.Button(label="Install"), "primary")
-                b.connect("clicked", lambda _b, i=aid, n=name: self.admin(["flatpak", "install", "-y", "--noninteractive", "flathub", i],
-                                                                         "Soarix needs your password to install %s." % n, "Installing %s ..." % n,
-                                                                         "%s is installed. Find it in the Apps drawer." % n))
-                r.append(b)
-            box.append(r)
-        self.status.set_text(("Found %d. Press Install next to the one you want." % min(len(rows), 25)) if rows else "Nothing found. Try other words.")
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
+            tag = mk(Gtk.Label(label=self.TAGS.get(a["state"], a["state"])), "tag")
+            if a["state"] != "installed":
+                tag.add_css_class("tag-off")
+            col.append(tag)
+            if a["state"] == "available":
+                ib = mk(Gtk.Button(label="Install"), "primary")
+                ib.connect("clicked", lambda _b, i=a["id"], n=a["name"]: self.admin(["soarix-addon", "install", i],
+                                                                                  "Soarix needs your password to install %s." % n,
+                                                                                  "Installing %s ..." % n, "%s is installed." % n))
+                col.append(ib)
+            elif a["state"] == "installed":
+                rb = Gtk.Button(label="Remove")
+                rb.connect("clicked", lambda _b, i=a["id"], n=a["name"]: self.admin(["soarix-addon", "remove", i],
+                                                                                  "Soarix needs your password to remove %s." % n,
+                                                                                  "Removing %s ..." % n, "%s was removed." % n))
+                col.append(rb)
+            elif a["state"] == "key":
+                kb = Gtk.Button(label="Enter a key")
+                kb.connect("clicked", lambda *_: subprocess.Popen(["soarix-window", "sysinfo"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                                   stderr=subprocess.DEVNULL, start_new_session=True))
+                col.append(kb)
+            r.append(col)
+            b.append(r)
+        if not rows:
+            b.append(label("No add-ons are listed yet.", "sub"))
 
     def admin(self, cmd, why, busy_text, done_text):
         def go():
@@ -2267,7 +2260,7 @@ class ProgramsPage(Page):
 PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage,
          "sysinfo": SysInfoPage, "services": ServicesPage, "appearance": AppearancePage, "display": DisplayPage,
          "network": NetworkPage, "printers": PrintersPage,
-         "devices": DevicesPage, "users": UsersPage, "programs": ProgramsPage}
+         "devices": DevicesPage, "users": UsersPage, "addons": AddonsPage}
 
 
 def main():

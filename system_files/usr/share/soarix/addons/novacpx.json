@@ -1,0 +1,12 @@
+{
+  "id": "novacpx",
+  "name": "NovaCPX Hosting Panel",
+  "description": "Manage websites, email, DNS, databases, FTP, backups and Docker from one web page. For the Server edition.",
+  "editions": ["server"],
+  "license": "addon-novacpx",
+  "image": "licensing.tomtomenterprises.com/soarix/addon-novacpx:latest",
+  "status": "coming",
+  "note": "In development: NovaCPX is being adapted to Soarix. It will appear here when it is ready.",
+  "after_install": [],
+  "before_remove": []
+}

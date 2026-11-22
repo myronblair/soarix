@@ -7,6 +7,7 @@
   soarix-edition switch server                the server edition (web, mail, databases, ... switched on as you need them)
   soarix-edition switch NAME --restart        ...and restart right away
   soarix-edition upgrade KEY                  use a new license key (for example one that adds the server edition)
+  echo KEY | sudo soarix-edition upgrade -    the same, without the key showing on the command line
 
 A switch is a normal Soarix update to a different image: nothing changes until you restart, your files and
 settings stay, and 'soarix-update rollback' goes back. The edition has to be part of your license.
@@ -120,7 +121,9 @@ def cmd_upgrade(a):
     if not a:
         print("Usage: sudo soarix-edition upgrade KEY")
         return 2
-    r = subprocess.run(["soarix-license", "activate", a[0], "--edition", current_edition()])
+    key = sys.stdin.readline().strip() if a[0] == "-" else a[0]
+    # the key goes to soarix-license on its input, so it never shows in a list of running programs
+    r = subprocess.run(["soarix-license", "activate", "-", "--edition", current_edition()], input=key + "\n", text=True)
     if r.returncode != 0:
         return r.returncode
     print()

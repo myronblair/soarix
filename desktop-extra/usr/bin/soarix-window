@@ -38,7 +38,7 @@ update_menu() {
 }
 
 # The graphical windows need GTK; fall back to the terminal versions if it is missing
-if [ "$1" = update ] || [ "$1" = license ] || [ "$1" = essentials ] || [ "$1" = datetime ] || [ "$1" = sysinfo ] || [ "$1" = services ] || [ "$1" = appearance ] || [ "$1" = display ] || [ "$1" = network ] || [ "$1" = printers ] || [ "$1" = devices ] || [ "$1" = users ] || [ "$1" = programs ]; then
+if [ "$1" = update ] || [ "$1" = license ] || [ "$1" = essentials ] || [ "$1" = datetime ] || [ "$1" = sysinfo ] || [ "$1" = services ] || [ "$1" = appearance ] || [ "$1" = display ] || [ "$1" = network ] || [ "$1" = printers ] || [ "$1" = devices ] || [ "$1" = users ] || [ "$1" = addons ]; then
   if command -v soarix-app >/dev/null && python3 -c 'import gi; gi.require_version("Gtk", "4.0")' 2>/dev/null; then
     exec soarix-app "$1"
   fi
@@ -49,7 +49,7 @@ case "$1" in
   update-menu) update_menu ;;
   license)    exec foot -T "Soarix License" sh -c 'sudo soarix-license status; echo; read -rp "Press Enter to close "' ;;
   essentials) exec foot -T "Soarix Essentials" soarix-essentials ;;
-  programs)   exec foot -T "Apps and Programs" sh -c 'soarix-programs list; echo; read -rp "Press Enter to close "' ;;
+  addons)     exec foot -T "Add-ons" sh -c 'soarix-addon list; echo; read -rp "Press Enter to close "' ;;
   users)      exec xdg-open https://localhost:9090/users ;;
   devices)    exec foot -T "Network Devices" arp -a ;;
   network)    exec foot -T "Network" nmtui ;;
@@ -63,5 +63,5 @@ case "$1" in
   services)   exec foot -T "Server Services" sh -c 'soarix-server list; echo; read -rp "Press Enter to close "' ;;
   sysinfo)    exec foot -T "System Information" sh -c 'soarix-info; echo; read -rp "Press Enter to close "' ;;
   datetime)   exec foot -T "Date and Time" sh -c 'timedatectl; echo; read -rp "Press Enter to close "' ;;
-  *) echo "usage: soarix-window update|license|essentials|datetime|sysinfo|services|console|appearance|display|network|printers|devices|users|programs" >&2; exit 2 ;;
+  *) echo "usage: soarix-window update|license|essentials|datetime|sysinfo|services|console|appearance|display|network|printers|devices|users|addons" >&2; exit 2 ;;
 esac
