@@ -73,8 +73,8 @@ textview.log, textview.log text { background-color: #08101f; color: #9fb3d1; fon
 scrolledwindow.logbox { border: 1px solid #22304f; border-radius: 10px; }
 .banner { background-color: rgba(200,150,62,0.16); border: 1px solid #c8963e; border-radius: 12px; padding: 14px 18px; }
 entry, passwordentry text, passwordentry { background-color: #08101f; color: #e6edf7; border: 1px solid #2f4268; border-radius: 8px; padding: 6px 10px; min-height: 28px; }
-check { background-color: #1b2a4a; border: 1px solid #3a4f7a; border-radius: 6px; min-width: 20px; min-height: 20px; }
-check:checked { background-color: #ACC; border-color: #ACC; color: #0b1426; }
+check { background-image: none; background-color: #1b2a4a; border: 1px solid #3a4f7a; border-radius: 6px; min-width: 20px; min-height: 20px; box-shadow: none; -gtk-icon-source: none; }
+check:checked { background-image: none; background-color: #ACC; border-color: #ACC; color: #0b1426; -gtk-icon-source: -gtk-icontheme("object-select-symbolic"); }
 .approw { background: #0f1930; border: 1px solid #1d2b49; border-radius: 12px; padding: 12px 14px; }
 .approw:hover { border-color: #3a4f7a; }
 .tag { background: rgba(95,194,122,0.16); color: #5fc27a; border-radius: 8px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
@@ -390,6 +390,7 @@ class LicensePage(Page):
         super().__init__(app)
         self.head("Soarix License", "What this computer is licensed for.")
         self.card = mk(Gtk.Grid(row_spacing=10, column_spacing=24), "card")
+        self.card.set_visible(False)
         self.root.append(self.card)
         self.state = self.log_area(120)
         self.root.append(self.state)
@@ -426,6 +427,7 @@ class LicensePage(Page):
 
     def render(self, what, rc):
         c = self.card
+        c.set_visible(True)
         while c.get_first_child():
             c.remove(c.get_first_child())
         rows = []
