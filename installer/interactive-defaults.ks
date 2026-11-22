@@ -37,8 +37,8 @@ for d in $etcs; do
     install -m 600 /etc/ostree/auth.json "$d/ostree/auth.json"
   fi
 done
-umount /var/tmp 2>/dev/null || true
-rm -rf /mnt/sysroot/.soarix-staging
+umount /var/tmp >/dev/null 2>&1 || true
+rm -rf /mnt/sysroot/.soarix-staging >/dev/null 2>&1 || true
 %end
 
 # List what was installed (shown in the installer's program log)

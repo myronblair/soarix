@@ -42,7 +42,7 @@ if [ "$1" = "install" ] && [ "$2" = "to-filesystem" ]; then
   fi
   umount /var/tmp 2>/dev/null || umount -l /var/tmp 2>/dev/null
   umount "$stage" 2>/dev/null || umount -l "$stage" 2>/dev/null
-  rm -rf "$stage"
+  rm -rf "$stage" >/dev/null 2>&1
   exit $rc
 fi
 exec "$REAL" "$@"
