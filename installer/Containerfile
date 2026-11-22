@@ -14,7 +14,7 @@ RUN dnf5 -y install \
     xorriso squashfs-tools isomd5sum jq skopeo podman \
  && dnf5 clean all
 
-ARG SOARIX_VERSION=0.2.3
+ARG SOARIX_VERSION=0.2.4
 RUN printf '%s\n' 'NAME="Soarix"' "PRETTY_NAME=\"Soarix ${SOARIX_VERSION}\"" 'ID=soarix' 'ID_LIKE="fedora"' \
     "VERSION=\"${SOARIX_VERSION}\"" "VERSION_ID=\"${SOARIX_VERSION}\"" 'VARIANT_ID=installer' 'HOME_URL="https://getsoarix.com"' \
     > /usr/lib/os-release && ln -sf ../usr/lib/os-release /etc/os-release

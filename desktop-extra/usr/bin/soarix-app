@@ -4,6 +4,7 @@
   soarix-app update       look for updates, update Soarix and apps, go back to the previous version
   soarix-app license      what this computer is licensed for
   soarix-app essentials   install the recommended everyday apps
+  soarix-app datetime     time zone, 12 or 24 hour clock, automatic time
 
 Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
 password in a Soarix box (it is used only for that task and is never stored).
@@ -14,6 +15,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 
 import gi
 
@@ -79,6 +81,15 @@ check:checked { background-image: none; background-color: #ACC; border-color: #A
 .approw:hover { border-color: #3a4f7a; }
 .tag { background: rgba(95,194,122,0.16); color: #5fc27a; border-radius: 8px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
 expander title { color: #8ea2c4; }
+switch { background-image: none; background-color: #1b2a4a; border: 1px solid #2f4268; border-radius: 14px; }
+switch:checked { background-color: #ACC; border-color: #ACC; }
+switch slider { background-image: none; background-color: #e6edf7; border-radius: 50%; border: none; box-shadow: none; min-width: 22px; min-height: 22px; }
+popover contents { background-color: #111d36; border: 1px solid #22304f; border-radius: 10px; color: #e6edf7; }
+popover listview, popover list { background-color: transparent; color: #e6edf7; }
+popover row:hover, popover listview row:hover { background-color: #25375e; }
+popover row:selected, popover listview row:selected { background-color: #1f4d66; }
+spinbutton { background-color: #08101f; color: #e6edf7; border: 1px solid #2f4268; border-radius: 8px; }
+spinbutton text { background: transparent; color: #e6edf7; }
 """.replace("#ACC", "#" + acc)
 
 
@@ -529,7 +540,170 @@ class EssentialsPage(Page):
         self.need_password("Soarix needs your password to install apps.", go)
 
 
-PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage}
+DT_CONF = os.path.expanduser("~/.config/soarix/datetime.json")
+
+
+def dt_load():
+    try:
+        return json.load(open(DT_CONF))
+    except (OSError, ValueError):
+        return {}
+
+
+def dt_save(d):
+    os.makedirs(os.path.dirname(DT_CONF), exist_ok=True)
+    with open(DT_CONF, "w") as f:
+        json.dump(d, f)
+
+
+def timedatectl(prop):
+    try:
+        return subprocess.run(["timedatectl", "show", "-p", prop, "--value"], capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+class DateTimePage(Page):
+    TITLE = "Date & Time"
+    SIZE = (700, 720)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Date & Time", "Time zone, clock format and automatic time.")
+        self.quiet = True
+        card = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4), "card")
+        self.clock = label("", "big")
+        self.day = label("", "sub")
+        card.append(self.clock)
+        card.append(self.day)
+        self.root.append(card)
+
+        grid = mk(Gtk.Grid(row_spacing=16, column_spacing=20), "card")
+        zones = subprocess.run(["timedatectl", "list-timezones"], capture_output=True, text=True).stdout.split()
+        self.zones = zones or ["UTC"]
+        self.dd = Gtk.DropDown.new_from_strings(self.zones)
+        self.dd.set_enable_search(True)
+        self.dd.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+        self.dd.set_hexpand(True)
+        cur = timedatectl("Timezone")
+        if cur in self.zones:
+            self.dd.set_selected(self.zones.index(cur))
+        self.zone_btn = mk(Gtk.Button(label="Set time zone"), "primary")
+        self.zone_btn.connect("clicked", lambda *_: self.set_zone())
+        grid.attach(label("Time zone", "label-val"), 0, 0, 1, 1)
+        grid.attach(self.dd, 1, 0, 1, 1)
+        grid.attach(self.zone_btn, 2, 0, 1, 1)
+
+        self.sw24 = Gtk.Switch(valign=Gtk.Align.CENTER, halign=Gtk.Align.END)
+        self.sw24.set_active(bool(dt_load().get("clock24", False)))
+        self.sw24.connect("notify::active", lambda *_: self.on_24())
+        grid.attach(label("24-hour (military) time", "label-val"), 0, 1, 2, 1)
+        grid.attach(self.sw24, 2, 1, 1, 1)
+
+        self.swntp = Gtk.Switch(valign=Gtk.Align.CENTER, halign=Gtk.Align.END)
+        self.swntp.set_active(timedatectl("NTP") == "yes")
+        self.swntp.connect("notify::active", lambda *_: self.on_ntp())
+        grid.attach(label("Set the time automatically from the internet", "label-val"), 0, 2, 2, 1)
+        grid.attach(self.swntp, 2, 2, 1, 1)
+
+        self.manual = Gtk.Box(spacing=10)
+        self.date_in = Gtk.Entry(placeholder_text="YYYY-MM-DD", max_width_chars=12)
+        self.time_in = Gtk.Entry(placeholder_text="HH:MM  (24-hour)", max_width_chars=12)
+        now = time.localtime()
+        self.date_in.set_text(time.strftime("%Y-%m-%d", now))
+        self.time_in.set_text(time.strftime("%H:%M", now))
+        self.set_btn = Gtk.Button(label="Set date and time")
+        self.set_btn.connect("clicked", lambda *_: self.set_manual())
+        self.manual.append(self.date_in)
+        self.manual.append(self.time_in)
+        self.manual.append(self.set_btn)
+        grid.attach(label("Date and time", "label-val"), 0, 3, 1, 1)
+        grid.attach(self.manual, 1, 3, 2, 1)
+        self.manual_row = [grid.get_child_at(0, 3), self.manual]
+        self.root.append(grid)
+
+        self.state = self.log_area(110)
+        self.root.append(self.state)
+        self.quiet = False
+        self.show_manual()
+        GLib.timeout_add_seconds(1, self.tick)
+        self.tick()
+
+    def fmt(self):
+        return "%H:%M:%S" if self.sw24.get_active() else "%-I:%M:%S %p"
+
+    def tick(self):
+        t = time.localtime()
+        self.clock.set_text(time.strftime(self.fmt(), t))
+        self.day.set_text(time.strftime("%A, %B %-d, %Y", t) + "   " + (time.tzname[t.tm_isdst > 0] if time.tzname else ""))
+        return True
+
+    def show_manual(self):
+        for w in self.manual_row:
+            w.set_visible(not self.swntp.get_active())
+
+    def on_24(self):
+        if self.quiet:
+            return
+        d = dt_load()
+        d["clock24"] = self.sw24.get_active()
+        dt_save(d)
+        subprocess.Popen(["soarix-appearance", "restart-bar"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        self.tick()
+        self.status.set_text("Clock format saved. The top bar and the lock screen use it.")
+
+    def run_admin(self, cmd, why, busy_text, done_text, after=None):
+        def go():
+            self.log_clear()
+            self.busy(True, busy_text)
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                time.tzset()
+                self.tick()
+                self.status.set_text(done_text if rc == 0 else "That did not work (see the details).")
+                if after:
+                    after(rc)
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
+        self.need_password(why, go)
+
+    def set_zone(self):
+        z = self.zones[self.dd.get_selected()]
+        self.run_admin(["timedatectl", "set-timezone", z], "Soarix needs your password to change the time zone.",
+                       "Changing the time zone ...", "Time zone set to %s." % z)
+
+    def on_ntp(self):
+        self.show_manual()
+        if self.quiet:
+            return
+        want = self.swntp.get_active()
+
+        def after(rc):
+            if rc != 0:
+                self.quiet = True
+                self.swntp.set_active(timedatectl("NTP") == "yes")
+                self.quiet = False
+                self.show_manual()
+        self.run_admin(["timedatectl", "set-ntp", "true" if want else "false"], "Soarix needs your password to change the time setting.",
+                       "Saving ...", "The time is now set automatically." if want else "Automatic time is off. Set the date and time below.", after)
+
+    def set_manual(self):
+        try:
+            import datetime
+            when = datetime.datetime.strptime(self.date_in.get_text().strip() + " " + self.time_in.get_text().strip(), "%Y-%m-%d %H:%M")
+        except ValueError:
+            self.status.set_text("Type the date like 2026-11-22 and the time like 14:30.")
+            return
+        self.run_admin(["timedatectl", "set-time", when.strftime("%Y-%m-%d %H:%M:00")], "Soarix needs your password to set the date and time.",
+                       "Setting the date and time ...", "Date and time set.")
+
+
+PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage}
 
 
 def main():

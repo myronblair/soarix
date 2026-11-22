@@ -287,9 +287,18 @@ def lock():
     if subprocess.run(["pgrep", "-x", "gtklock"], capture_output=True).returncode == 0:
         return 0
     try:
-        os.execvp("gtklock", ["gtklock", "-s", lock_css()])
+        dt = json.load(open(os.path.expanduser("~/.config/soarix/datetime.json")))
+    except (OSError, ValueError):
+        dt = {}
+    tf = "%H:%M" if dt.get("clock24") else "%-I:%M %p"
+    started = time.time()
+    try:
+        rc = subprocess.run(["gtklock", "--style", lock_css(), "--time-format", tf, "--date-format", "%A, %B %-d"]).returncode
     except OSError:
+        rc = 127
+    if rc != 0 and time.time() - started < 3:  # the lock screen did not start: use the plain one
         os.execvp("swaylock", ["swaylock", "-f", "-c", "0b1426"])
+    return 0
 
 
 if __name__ == "__main__":

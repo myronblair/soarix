@@ -8,7 +8,7 @@ cp -f /etc/soarix/drawer.css "$HOME/.config/nwg-drawer/drawer.css"
     soarix-update.desktop soarix-license.desktop soarix-web-console.desktop org.gnome.Software.desktop \
     org.gnome.Nautilus.desktop firefox.desktop > "$HOME/.cache/nwg-pin-cache"
 # Newer pinned apps are added for existing users too
-for p in soarix-display.desktop soarix-appearance.desktop soarix-essentials.desktop org.remmina.Remmina.desktop; do
+for p in soarix-display.desktop soarix-appearance.desktop soarix-datetime.desktop soarix-essentials.desktop org.remmina.Remmina.desktop; do
     grep -qx "$p" "$HOME/.cache/nwg-pin-cache" || echo "$p" >> "$HOME/.cache/nwg-pin-cache"
 done
 exec nwg-drawer -ovl -c 8 -is 112 -fscol 8 -term foot -fm nautilus -s drawer.css

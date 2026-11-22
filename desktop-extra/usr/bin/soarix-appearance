@@ -4,6 +4,7 @@
   soarix-appearance          open the Appearance menu
   soarix-appearance apply    at login: apply the saved choices (or the defaults)
   soarix-appearance bar      start the top bar with the chosen accent color (used at login)
+  soarix-appearance restart-bar   apply the clock format and accent color to the bar now
 """
 import glob
 import json
@@ -16,6 +17,8 @@ CONF = os.path.expanduser("~/.config/soarix/appearance.json")
 BAR_CSS = "/etc/soarix/waybar/style.css"
 BAR_USER_CSS = os.path.expanduser("~/.config/soarix/waybar-style.css")
 BAR_CONFIG = "/etc/soarix/waybar/config.jsonc"
+BAR_USER_CONFIG = os.path.expanduser("~/.config/soarix/waybar-config.jsonc")
+DATETIME = os.path.expanduser("~/.config/soarix/datetime.json")
 WALLPAPERS = "/usr/share/backgrounds/soarix"
 DEFAULT_WALLPAPER = "default.png"
 NAMES = {
@@ -109,8 +112,33 @@ def bar_css(conf):
     return BAR_USER_CSS
 
 
+def clock24():
+    try:
+        return bool(json.load(open(DATETIME)).get("clock24", False))
+    except (OSError, ValueError):
+        return False
+
+
+def bar_config():
+    """The bar settings with the clock in the chosen format (12-hour by default, or 24-hour)."""
+    d = json.load(open(BAR_CONFIG))
+    if clock24():
+        d["clock"]["format"] = "{:%a %b %-d   %H:%M}"
+    else:
+        d["clock"]["format"] = "{:%a %b %-d   %-I:%M %p}"
+    d["clock"]["tooltip-format"] = "{:%A, %B %-d, %Y}"
+    os.makedirs(os.path.dirname(BAR_USER_CONFIG), exist_ok=True)
+    with open(BAR_USER_CONFIG, "w") as f:
+        json.dump(d, f, indent=2)
+    return BAR_USER_CONFIG
+
+
+def set_clock_format():
+    gset("clock-format", "'24h'" if clock24() else "'12h'")
+
+
 def bar_command(conf):
-    return ["waybar", "-c", BAR_CONFIG, "-s", bar_css(conf)]
+    return ["waybar", "-c", bar_config(), "-s", bar_css(conf)]
 
 
 def restart_bar(conf):
@@ -122,6 +150,7 @@ def restart_bar(conf):
 def apply_all():
     conf = load()
     set_theme(conf)
+    set_clock_format()
     if conf.get("wallpaper") and wallpaper_path(conf) != os.path.join(WALLPAPERS, DEFAULT_WALLPAPER):
         set_wallpaper(wallpaper_path(conf))
     return 0
@@ -219,6 +248,10 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     if a == ["apply"]:
         sys.exit(apply_all())
+    if a == ["restart-bar"]:
+        set_clock_format()
+        restart_bar(load())
+        sys.exit(0)
     if a == ["bar"]:
         c = bar_command(load())
         os.execvp(c[0], c)
