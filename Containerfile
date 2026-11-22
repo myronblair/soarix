@@ -6,7 +6,7 @@ COPY system_files /system_files
 
 # Base: Fedora's official bootc (atomic, image-based) image
 FROM quay.io/fedora/fedora-bootc:44
-ARG SOARIX_VERSION=0.3.3
+ARG SOARIX_VERSION=0.3.4
 LABEL org.opencontainers.image.source="https://github.com/myronblair/soarix" \
       org.opencontainers.image.version="${SOARIX_VERSION}"
 
