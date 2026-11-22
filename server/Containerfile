@@ -5,7 +5,9 @@ FROM scratch AS ctx
 COPY server /
 
 FROM ${BASE}
-LABEL org.opencontainers.image.source="https://github.com/myronblair/soarix"
+ARG SOARIX_VERSION=0.2.0
+LABEL org.opencontainers.image.source="https://github.com/myronblair/soarix" 
+      org.opencontainers.image.version="${SOARIX_VERSION}"
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \

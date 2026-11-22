@@ -53,6 +53,6 @@ gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 
 # Edition name shown in About / os-release
 sed -i 's/^VARIANT=.*/VARIANT="Strip desktop"/; s/^VARIANT_ID=.*/VARIANT_ID=strip/' /usr/lib/os-release
-printf 'Soarix 0.1  (\l)\n\n' > /etc/issue
+printf 'Soarix %s  (\\l)\n\n' "$(. /usr/lib/os-release; echo "$VERSION_ID")" > /etc/issue
 
 dnf5 clean all

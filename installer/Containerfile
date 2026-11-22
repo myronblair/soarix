@@ -14,12 +14,13 @@ RUN dnf5 -y install \
     xorriso squashfs-tools isomd5sum jq skopeo podman \
  && dnf5 clean all
 
-RUN printf '%s\n' 'NAME="Soarix"' 'PRETTY_NAME="Soarix 0.1"' 'ID=soarix' 'ID_LIKE="fedora"' \
-    'VERSION="0.1"' 'VERSION_ID="0.1"' 'VARIANT_ID=installer' 'HOME_URL="https://getsoarix.com"' \
+ARG SOARIX_VERSION=0.2.0
+RUN printf '%s\n' 'NAME="Soarix"' "PRETTY_NAME=\"Soarix ${SOARIX_VERSION}\"" 'ID=soarix' 'ID_LIKE="fedora"' \
+    "VERSION=\"${SOARIX_VERSION}\"" "VERSION_ID=\"${SOARIX_VERSION}\"" 'VARIANT_ID=installer' 'HOME_URL="https://getsoarix.com"' \
     > /usr/lib/os-release && ln -sf ../usr/lib/os-release /etc/os-release
 
 # Product identity the installer reads (this is what the title bar says)
-RUN printf '[Main]\nProduct=Soarix\nVersion=0.1\nBugURL=https://getsoarix.com\nIsFinal=True\nUUID=202611171200.x86_64\n\n[Compose]\nLorax=soarix\n' > /.buildstamp
+RUN printf '[Main]\nProduct=Soarix\nVersion=%s\nBugURL=https://getsoarix.com\nIsFinal=True\nUUID=202611171200.x86_64\n\n[Compose]\nLorax=soarix\n' "${SOARIX_VERSION}" > /.buildstamp
 
 # Soarix look: artwork (sidebar, header, splash) and colours
 COPY branding/png/sidebar-logo.png branding/png/sidebar-bg.png branding/png/topbar-bg.png \

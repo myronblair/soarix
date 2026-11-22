@@ -1,6 +1,6 @@
 {
     "label" : "lock",
-    "action" : "swaylock -f -c 0b1426",
+    "action" : "soarix-display lock",
     "text" : "Lock",
     "keybind" : "l"
 }

@@ -59,7 +59,8 @@ systemctl --global enable soarix-update-apps.timer
 systemctl set-default multi-user.target
 
 ### Identity: make every user-visible name say Soarix
-VER="0.1"
+VER="$(cat /ctx/VERSION)"
+BUILD="$(date +%Y-%m-%d)"
 cat > /usr/lib/os-release <<OSR
 NAME="Soarix"
 PRETTY_NAME="Soarix ${VER}"
@@ -67,6 +68,7 @@ ID=soarix
 ID_LIKE="fedora"
 VERSION="${VER}"
 VERSION_ID="${VER}"
+BUILD_ID="${BUILD}"
 VARIANT="Command line"
 VARIANT_ID=core
 HOME_URL="https://getsoarix.com"

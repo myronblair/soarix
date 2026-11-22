@@ -3,6 +3,8 @@
 
   soarix-display          open the Display Settings menu
   soarix-display apply    at login: apply the saved choice, or a sensible default in a virtual machine
+  soarix-display lock     lock the screen now
+  soarix-display idle     at login: lock and turn the screen off after the chosen times
 
 A new setting is kept only after you confirm it. If the screen goes blank or unreadable, wait
 15 seconds and the previous setting comes back by itself.
@@ -16,6 +18,15 @@ import time
 FUZZEL = "/etc/xdg/fuzzel/fuzzel.ini"
 CONF = os.path.expanduser("~/.config/soarix/display.json")
 SCALES = [("100%  (default)", 1.0), ("125%", 1.25), ("150%", 1.5), ("175%", 1.75), ("200%  (large, for 4K screens)", 2.0)]
+APPEARANCE = os.path.expanduser("~/.config/soarix/appearance.json")
+LOCK_CSS = os.path.expanduser("~/.config/soarix/lock.css")
+WALLPAPER = "/usr/share/backgrounds/soarix/default.png"
+ACCENT_HEX = {"teal": "4fb3c8", "blue": "5b8def", "green": "5fc27a", "yellow": "e0c050", "orange": "e08a3c",
+              "red": "e0605a", "pink": "e07aa8", "purple": "a07be0", "slate": "8ea2c4"}
+# lock the screen after 15 minutes, turn it off after 30 (the screen saver); 0 means never
+DESK_DEFAULTS = {"lock": 15, "off": 30}
+MINUTES = [("Never", 0), ("1 minute", 1), ("2 minutes", 2), ("5 minutes", 5), ("10 minutes", 10),
+           ("15 minutes", 15), ("30 minutes", 30), ("1 hour", 60)]
 
 
 def niri(*args):
@@ -179,17 +190,115 @@ def menu():
     while True:
         o = outputs()[name]
         w, h, s = cur(o)
+        d = desk()
         c = pick("Display  (%d x %d, %d%%)" % (w, h, round(s * 100)),
-                 ["Resolution", "Text and icon size", "Reset to the recommended setting", "Close"])
+                 ["Resolution", "Text and icon size",
+                  "Lock the screen after:  " + minutes_label(d["lock"]),
+                  "Screen saver (turns the screen off) after:  " + minutes_label(d["off"]),
+                  "Lock the screen now",
+                  "Reset to the recommended setting", "Close"])
         if c == "Resolution":
             change(name, o, "res")
         elif c == "Text and icon size":
             change(name, o, "scale")
+        elif c and c.startswith("Lock the screen after"):
+            choose_minutes("Lock the screen after", "lock")
+        elif c and c.startswith("Screen saver"):
+            choose_minutes("Turn the screen off after", "off")
+        elif c == "Lock the screen now":
+            start(["soarix-display", "lock"])
+            return 0
         elif c and c.startswith("Reset"):
             reset(outputs())
         else:
             return 0
 
 
+def start(cmd):
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def desk():
+    d = dict(DESK_DEFAULTS)
+    d.update({k: v for k, v in (load().get("_desktop") or {}).items() if k in d and isinstance(v, int)})
+    return d
+
+
+def minutes_label(m):
+    for label, v in MINUTES:
+        if v == m:
+            return label
+    return "%d minutes" % m
+
+
+def choose_minutes(prompt, key):
+    now = desk()[key]
+    c = pick(prompt, [label + ("   (now)" if v == now else "") for label, v in MINUTES] + ["Back"])
+    if not c or c == "Back":
+        return
+    for label, v in MINUTES:
+        if c.startswith(label):
+            conf = load()
+            d = conf.setdefault("_desktop", {})
+            d[key] = v
+            save(conf)
+            restart_idle()
+            notify("Saved. It will be used every time you sign in.")
+
+
+def idle_command():
+    d = desk()
+    cmd = ["swayidle", "-w"]
+    if d["lock"]:
+        cmd += ["timeout", str(d["lock"] * 60), "soarix-display lock"]
+    if d["off"]:
+        cmd += ["timeout", str(d["off"] * 60), "niri msg action power-off-monitors", "resume", "niri msg action power-on-monitors"]
+    return cmd + ["before-sleep", "soarix-display lock"]
+
+
+def restart_idle():
+    subprocess.run(["pkill", "-x", "swayidle"], capture_output=True)
+    start(idle_command())
+
+
+def lock_css():
+    try:
+        a = json.load(open(APPEARANCE))
+    except (OSError, ValueError):
+        a = {}
+    wp = a.get("wallpaper") or WALLPAPER
+    if not os.path.isfile(wp):
+        wp = WALLPAPER
+    accent = ACCENT_HEX.get(a.get("accent", "teal"), "4fb3c8")
+    css = (
+        'window { background-image: linear-gradient(rgba(8,14,28,0.55), rgba(8,14,28,0.55)), url("file://%s");'
+        ' background-size: cover; background-position: center; color: #e6edf7; font-family: "Noto Sans", sans-serif; }\n'
+        '#clock-label { font-size: 110px; font-weight: 300; }\n'
+        '#input-field { border-radius: 10px; border: 2px solid #%s; background: rgba(11,20,38,0.88); color: #e6edf7; padding: 8px 12px; }\n'
+        '#input-label, #error-label { color: #%s; }\n'
+        '#unlock-button { border-radius: 10px; background: #%s; color: #0b1426; }\n' % (wp, accent, accent, accent))
+    os.makedirs(os.path.dirname(LOCK_CSS), exist_ok=True)
+    with open(LOCK_CSS, "w") as f:
+        f.write(css)
+    return LOCK_CSS
+
+
+def lock():
+    if subprocess.run(["pgrep", "-x", "gtklock"], capture_output=True).returncode == 0:
+        return 0
+    try:
+        os.execvp("gtklock", ["gtklock", "-s", lock_css()])
+    except OSError:
+        os.execvp("swaylock", ["swaylock", "-f", "-c", "0b1426"])
+
+
 if __name__ == "__main__":
-    sys.exit(apply_saved() if sys.argv[1:] == ["apply"] else menu())
+    a = sys.argv[1:]
+    if a == ["apply"]:
+        sys.exit(apply_saved())
+    if a == ["lock"]:
+        sys.exit(lock())
+    if a == ["idle"]:
+        c = idle_command()
+        os.execvp(c[0], c)
+    sys.exit(menu())

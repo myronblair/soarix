@@ -35,8 +35,18 @@ def cmdline_key():
         return ""
 
 
+def osversion():
+    try:
+        for ln in open("/etc/os-release"):
+            if ln.startswith("VERSION_ID="):
+                return ln.split("=", 1)[1].strip().strip(chr(34))
+    except OSError:
+        pass
+    return "0"
+
+
 def activate(key, sid):
-    body = {"license": key, "server_id": sid, "hostname": socket.gethostname(), "version": "0.1", "os": "soarix-installer", "edition": "core"}
+    body = {"license": key, "server_id": sid, "hostname": socket.gethostname(), "version": osversion(), "os": "soarix-installer", "edition": "core"}
     req = urllib.request.Request(API, json.dumps(body).encode(), {"Content-Type": "application/json", "User-Agent": "soarix-installer"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:

@@ -89,8 +89,17 @@ def newer(a, b):
 
 
 def notify(msg):
-    if shutil.which("notify-send"):
-        run(["notify-send", "-a", "Soarix", "Soarix update", msg])
+    """Show a desktop notification to the person who ran the update. The update itself runs as root,
+    which has no desktop of its own, so the message is sent through that person's session."""
+    if not shutil.which("notify-send"):
+        return
+    cmd = ["notify-send", "-a", "Soarix", "Soarix update", msg]
+    if os.geteuid() == 0:
+        user, uid = os.environ.get("SUDO_USER"), os.environ.get("SUDO_UID")
+        if not (user and uid and os.path.exists("/run/user/%s/bus" % uid)):
+            return  # nobody is signed in to a desktop: nothing to show
+        cmd = ["runuser", "-u", user, "--", "env", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus" % uid] + cmd
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def cmd_status():

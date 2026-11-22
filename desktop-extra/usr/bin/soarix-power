@@ -7,7 +7,7 @@ fi
 # fallback: plain list
 choice=$(printf 'Lock\nLog out\nSleep\nRestart\nShut down\n' | fuzzel --dmenu --prompt 'Power: ' --lines 5) || exit 0
 case "$choice" in
-  "Lock")      swaylock -f -c 0b1426 ;;
+  "Lock")      soarix-display lock ;;
   "Log out")   niri msg action quit --skip-confirmation ;;
   "Sleep")     systemctl suspend ;;
   "Restart")   systemctl reboot ;;

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Display Settings
-Comment=Screen resolution and size of text and icons
+Comment=Screen size, lock screen and screen saver
 Exec=soarix-display
 Icon=preferences-desktop-display
 Categories=Settings;System;
-Keywords=screen;monitor;resolution;scale;display;
+Keywords=screen;monitor;resolution;scale;display;lock;screensaver;screen saver;timeout;sleep;

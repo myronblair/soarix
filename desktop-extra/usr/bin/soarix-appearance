@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""soarix-appearance - wallpaper, light or dark theme, and accent colour.
+
+  soarix-appearance          open the Appearance menu
+  soarix-appearance apply    at login: apply the saved choices (or the defaults)
+  soarix-appearance bar      start the top bar with the chosen accent colour (used at login)
+"""
+import glob
+import json
+import os
+import subprocess
+import sys
+
+FUZZEL = "/etc/xdg/fuzzel/fuzzel.ini"
+CONF = os.path.expanduser("~/.config/soarix/appearance.json")
+BAR_CSS = "/etc/soarix/waybar/style.css"
+BAR_USER_CSS = os.path.expanduser("~/.config/soarix/waybar-style.css")
+BAR_CONFIG = "/etc/soarix/waybar/config.jsonc"
+WALLPAPERS = "/usr/share/backgrounds/soarix"
+DEFAULT_WALLPAPER = "default.png"
+NAMES = {
+    "default.png": "SoarixOS (default)",
+    "orbit.png": "SOARIX OS, glowing capitals",
+    "wide.png": "Wide capitals with a star",
+    "readout.png": "Instrument readout",
+    "plain.png": "Plain, no text",
+    "light.png": "Light",
+}
+# name, bar colour, GNOME accent name (for apps that follow it)
+ACCENTS = [("Teal  (default)", "4fb3c8", "teal"), ("Blue", "5b8def", "blue"), ("Green", "5fc27a", "green"),
+           ("Yellow", "e0c050", "yellow"), ("Orange", "e08a3c", "orange"), ("Red", "e0605a", "red"),
+           ("Pink", "e07aa8", "pink"), ("Purple", "a07be0", "purple"), ("Slate", "8ea2c4", "slate")]
+
+
+def load():
+    try:
+        return json.load(open(CONF))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(d):
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    with open(CONF, "w") as f:
+        json.dump(d, f)
+
+
+def notify(msg):
+    subprocess.run(["notify-send", "-a", "Appearance", "Appearance", msg], capture_output=True)
+
+
+def pick(prompt, items):
+    r = subprocess.run(["fuzzel", "--config", FUZZEL, "--dmenu", "-p", prompt + "  ", "-l", str(min(len(items), 14)), "-w", "46"],
+                       input="\n".join(items), capture_output=True, text=True)
+    s = r.stdout.strip("\n")
+    return s if r.returncode == 0 and s else None
+
+
+def pids(name):
+    r = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True)
+    return r.stdout.split()
+
+
+def start(cmd):
+    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def wallpaper_path(conf):
+    w = conf.get("wallpaper") or os.path.join(WALLPAPERS, DEFAULT_WALLPAPER)
+    if not os.path.isabs(w):
+        w = os.path.join(WALLPAPERS, w)
+    return w if os.path.isfile(w) else os.path.join(WALLPAPERS, DEFAULT_WALLPAPER)
+
+
+def set_wallpaper(path):
+    old = pids("swaybg")
+    start(["swaybg", "-i", path, "-m", "fill"])
+    for p in old:  # remove the old one after the new one is up, so there is no flash
+        subprocess.run(["kill", p], capture_output=True)
+
+
+def accent_of(conf):
+    n = conf.get("accent", "teal")
+    for label, hexv, gname in ACCENTS:
+        if gname == n:
+            return hexv, gname
+    return ACCENTS[0][1], ACCENTS[0][2]
+
+
+def gset(key, val):
+    subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", key, val], capture_output=True)
+
+
+def set_theme(conf):
+    dark = conf.get("theme", "dark") != "light"
+    gset("color-scheme", "'prefer-dark'" if dark else "'prefer-light'")
+    gset("accent-color", "'%s'" % accent_of(conf)[1])
+
+
+def bar_css(conf):
+    hexv = accent_of(conf)[0]
+    css = open(BAR_CSS).read()
+    css += ("\n/* accent colour chosen in Appearance */\n"
+            "#custom-store, #workspaces button.active, #workspaces button.focused { background: #%s; }\n"
+            "#taskbar button.active { border-bottom: 3px solid #%s; }\n" % (hexv, hexv))
+    os.makedirs(os.path.dirname(BAR_USER_CSS), exist_ok=True)
+    with open(BAR_USER_CSS, "w") as f:
+        f.write(css)
+    return BAR_USER_CSS
+
+
+def bar_command(conf):
+    return ["waybar", "-c", BAR_CONFIG, "-s", bar_css(conf)]
+
+
+def restart_bar(conf):
+    for p in pids("waybar"):
+        subprocess.run(["kill", p], capture_output=True)
+    start(bar_command(conf))
+
+
+def apply_all():
+    conf = load()
+    set_theme(conf)
+    if conf.get("wallpaper") and wallpaper_path(conf) != os.path.join(WALLPAPERS, DEFAULT_WALLPAPER):
+        set_wallpaper(wallpaper_path(conf))
+    return 0
+
+
+def choose_wallpaper():
+    conf = load()
+    items, paths = [], {}
+    for f in sorted(glob.glob(os.path.join(WALLPAPERS, "*.png"))):
+        b = os.path.basename(f)
+        label = NAMES.get(b, os.path.splitext(b)[0])
+        if f == wallpaper_path(conf):
+            label += "   (now)"
+        items.append(label)
+        paths[label] = f
+    pics = sorted(glob.glob(os.path.expanduser("~/Pictures/*.png")) + glob.glob(os.path.expanduser("~/Pictures/*.jpg")) +
+                  glob.glob(os.path.expanduser("~/Pictures/*.jpeg")))
+    for f in pics:
+        label = "My picture: " + os.path.basename(f)
+        items.append(label)
+        paths[label] = f
+    if not pics:
+        items.append("(To use your own picture, put it in your Pictures folder, then open this again)")
+    items.append("Back")
+    c = pick("Wallpaper", items)
+    if not c or c == "Back" or c not in paths:
+        return
+    conf["wallpaper"] = paths[c]
+    save(conf)
+    set_wallpaper(paths[c])
+    notify("Wallpaper changed. It will be used every time you sign in.")
+
+
+def choose_theme():
+    conf = load()
+    now = conf.get("theme", "dark")
+    c = pick("Theme", ["Dark" + ("   (now)" if now == "dark" else ""), "Light" + ("   (now)" if now == "light" else ""), "Back"])
+    if not c or c == "Back":
+        return
+    conf["theme"] = "light" if c.startswith("Light") else "dark"
+    save(conf)
+    set_theme(conf)
+    notify("Theme changed. Apps that are already open may need to be reopened.")
+
+
+def choose_accent():
+    conf = load()
+    now = accent_of(conf)[1]
+    items = [label + ("   (now)" if g == now and "(default)" not in label else "") for label, _, g in ACCENTS] + ["Back"]
+    c = pick("Accent colour", items)
+    if not c or c == "Back":
+        return
+    for label, _, g in ACCENTS:
+        if c.startswith(label):
+            conf["accent"] = g
+    save(conf)
+    set_theme(conf)
+    restart_bar(conf)
+    notify("Accent colour changed.")
+
+
+def reset():
+    try:
+        os.remove(CONF)
+    except OSError:
+        pass
+    conf = {}
+    set_theme(conf)
+    set_wallpaper(wallpaper_path(conf))
+    restart_bar(conf)
+    notify("Appearance reset to the Soarix defaults.")
+
+
+def menu():
+    while True:
+        conf = load()
+        theme = "Light" if conf.get("theme") == "light" else "Dark"
+        wp = NAMES.get(os.path.basename(wallpaper_path(conf)), os.path.basename(wallpaper_path(conf)))
+        accent = next(l.split()[0] for l, _, g in ACCENTS if g == accent_of(conf)[1])
+        c = pick("Appearance", ["Wallpaper:  " + wp, "Theme:  " + theme, "Accent colour:  " + accent,
+                                "Reset to the Soarix defaults", "Close"])
+        if c and c.startswith("Wallpaper"):
+            choose_wallpaper()
+        elif c and c.startswith("Theme"):
+            choose_theme()
+        elif c and c.startswith("Accent"):
+            choose_accent()
+        elif c and c.startswith("Reset"):
+            reset()
+        else:
+            return 0
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if a == ["apply"]:
+        sys.exit(apply_all())
+    if a == ["bar"]:
+        c = bar_command(load())
+        os.execvp(c[0], c)
+    sys.exit(menu())
