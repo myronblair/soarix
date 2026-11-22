@@ -5,6 +5,7 @@
   soarix-app license      what this computer is licensed for
   soarix-app essentials   install the recommended everyday apps
   soarix-app datetime     time zone, 12 or 24 hour clock, automatic time
+  soarix-app sysinfo      about this computer, switch edition, upgrade the license
 
 Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
 password in a Soarix box (it is used only for that task and is never stored).
@@ -703,7 +704,139 @@ class DateTimePage(Page):
                        "Setting the date and time ...", "Date and time set.")
 
 
-PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage}
+class SysInfoPage(Page):
+    TITLE = "System Information"
+    SIZE = (780, 880)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("System Information", "About this computer and the edition of Soarix it runs.")
+        info = self.load_info()
+        top = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4), "card")
+        top.append(label("You are running", "sub"))
+        top.append(label("Soarix " + info.get("soarix", "?"), "big"))
+        top.append(label("%s edition%s" % (info.get("edition", ""), ("   build " + info["build"]) if info.get("build") else ""), "sub"))
+        self.root.append(top)
+
+        scroll = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        grid = mk(Gtk.Grid(row_spacing=10, column_spacing=24), "card")
+        row = 0
+        for lab, key in [("Computer name", "computer_name"), ("Computer", "machine"), ("Processor", "processor"), ("Memory", "memory"),
+                         ("Storage", "storage"), ("Graphics", "graphics"), ("Network", "network"), ("Kernel", "kernel"), ("Running for", "uptime")]:
+            v = info.get(key)
+            if isinstance(v, list):
+                v = ", ".join(v) or "not connected"
+            if not v:
+                continue
+            grid.attach(label(lab, "label-key"), 0, row, 1, 1)
+            val = label(v, "label-val", wrap=True)
+            val.set_hexpand(True)
+            val.set_selectable(True)
+            grid.attach(val, 1, row, 1, 1)
+            row += 1
+        col.append(grid)
+
+        ed = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        ed.append(label("Edition", "heading"))
+        ed.append(label("Switch between the command line, the desktop and the server edition. Your files and settings stay. "
+                        "The change starts after a restart. Your license must include the edition.", "sub", wrap=True))
+        btns = Gtk.Box(spacing=10)
+        self.ed_btns = []
+        for key, name in (("core", "Command line"), ("desktop", "Desktop"), ("server", "Server")):
+            here = info.get("edition") == name
+            b = Gtk.Button(label=name + ("   (this one)" if here else ""))
+            b.set_sensitive(not here)
+            b.connect("clicked", lambda _b, k=key, n=name: self.switch(k, n))
+            btns.append(b)
+            self.ed_btns.append(b)
+        ed.append(btns)
+        col.append(ed)
+
+        up = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "card")
+        up.append(label("Upgrade your license", "heading"))
+        up.append(label("Have a new key, for example one that adds the server edition? Type it here.", "sub", wrap=True))
+        krow = Gtk.Box(spacing=10)
+        self.key = Gtk.Entry(placeholder_text="SOAR-XXXX-XXXX-XXXX-XXXX", hexpand=True)
+        self.key_btn = mk(Gtk.Button(label="Use this key"), "accent")
+        self.key_btn.connect("clicked", lambda *_: self.upgrade())
+        krow.append(self.key)
+        krow.append(self.key_btn)
+        up.append(krow)
+        col.append(up)
+        scroll.set_child(col)
+        self.root.append(scroll)
+
+        self.state = self.log_area(120)
+        self.root.append(self.state)
+        self.banner = mk(Gtk.Box(spacing=14), "banner")
+        msg = label("The new edition is ready. Restart to start it.", "status", wrap=True)
+        msg.set_hexpand(True)
+        self.banner.append(msg)
+        rb = mk(Gtk.Button(label="Restart now"), "primary")
+        rb.connect("clicked", lambda *_: self.admin(["systemctl", "reboot"], "Soarix needs your password to restart.", "Restarting ...", None))
+        self.banner.append(rb)
+        self.banner.set_visible(False)
+        self.root.append(self.banner)
+
+    def load_info(self):
+        try:
+            return json.loads(subprocess.run(["soarix-info", "--json"], capture_output=True, text=True, timeout=20).stdout)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return {}
+
+    def admin(self, cmd, why, busy_text, done):
+        def go():
+            self.log_clear()
+            self.banner.set_visible(False)
+            self.key_btn.set_sensitive(False)
+            for b in self.ed_btns:
+                b.set_sensitive(False)
+            self.busy(True, busy_text)
+            self.seen = []
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+                    self.seen.append(ln)
+                self.status.set_text(ln[:140])
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.key_btn.set_sensitive(True)
+                cur = self.load_info().get("edition")
+                for b, name in zip(self.ed_btns, ("Command line", "Desktop", "Server")):
+                    b.set_sensitive(name != cur)
+                if done:
+                    done(rc)
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
+        self.need_password(why, go)
+
+    def switch(self, key, name):
+        def after(rc):
+            text = " ".join(self.seen)
+            if "starts at the next restart" in text:
+                self.banner.set_visible(True)
+                self.status.set_text("The %s edition is downloaded. Restart to start it." % name)
+            elif rc != 0:
+                self.status.set_text(self.seen[-1] if self.seen else "That did not finish.")
+        self.admin(["soarix-edition", "switch", key], "Soarix needs your password to switch to the %s edition." % name,
+                   "Switching to the %s edition ..." % name, after)
+
+    def upgrade(self):
+        k = self.key.get_text().strip()
+        if not k:
+            self.status.set_text("Type your new license key first.")
+            return
+
+        def after(rc):
+            self.status.set_text("License updated. See the details for what it now includes." if rc == 0
+                                 else (self.seen[-1] if self.seen else "That key was not accepted."))
+        self.admin(["soarix-edition", "upgrade", k], "Soarix needs your password to change the license.", "Checking the key ...", after)
+
+
+PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage, "datetime": DateTimePage,
+         "sysinfo": SysInfoPage}
 
 
 def main():

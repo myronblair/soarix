@@ -26,4 +26,7 @@ for u in nginx httpd php-fpm mariadb postgresql valkey memcached named unbound v
 done
 systemctl enable firewalld.service chronyd.service sshd.service cockpit.socket
 
+# Name this edition (shown in System Information; the license and update tools read it)
+sed -i 's/^VARIANT=.*/VARIANT="Server"/; s/^VARIANT_ID=.*/VARIANT_ID=server/' /usr/lib/os-release
+
 dnf5 clean all

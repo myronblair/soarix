@@ -1,0 +1,146 @@
+#!/usr/bin/python3
+"""soarix-edition - see and change which edition of Soarix this computer runs.
+
+  soarix-edition status                       the edition you run now and the editions your license includes
+  soarix-edition switch core                  command line only
+  soarix-edition switch desktop               the graphical desktop
+  soarix-edition switch server                the server edition (web, mail, databases, ... switched on as you need them)
+  soarix-edition switch NAME --restart        ...and restart right away
+  soarix-edition upgrade KEY                  use a new license key (for example one that adds the server edition)
+
+A switch is a normal Soarix update to a different image: nothing changes until you restart, your files and
+settings stay, and 'soarix-update rollback' goes back. The edition has to be part of your license.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+CONF = "/etc/soarix/update.conf"
+LIC = "/etc/soarix/license.json"
+NAMES = {"core": "Command line", "desktop": "Desktop", "server": "Server"}
+VARIANTS = {"core": "core", "strip": "desktop", "server": "server"}  # os-release VARIANT_ID -> edition
+DEFAULT_IMAGES = {"core": "licensing.tomtomenterprises.com/soarix/core:latest",
+                  "desktop": "licensing.tomtomenterprises.com/soarix/desktop:latest",
+                  "server": "licensing.tomtomenterprises.com/soarix/server:latest"}
+
+
+def conf_images():
+    img = dict(DEFAULT_IMAGES)
+    try:
+        for ln in open(CONF):
+            ln = ln.strip()
+            if "=" in ln and not ln.startswith("#"):
+                k, v = ln.split("=", 1)
+                k = k.strip().lower()
+                if k.endswith("_image") and k[:-6] in img:
+                    img[k[:-6]] = v.strip().strip('"')
+    except OSError:
+        pass
+    return img
+
+
+def current_edition():
+    vid = "core"
+    try:
+        for ln in open("/usr/lib/os-release"):
+            if ln.startswith("VARIANT_ID="):
+                vid = ln.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return VARIANTS.get(vid, "core")
+
+
+def licensed():
+    try:
+        return json.load(open(LIC)).get("editions", [])
+    except (OSError, ValueError):
+        return []
+
+
+def as_root():
+    if os.geteuid() != 0:
+        if shutil.which("sudo"):
+            os.execvp("sudo", ["sudo"] + sys.argv)
+        print("Run with sudo:  sudo soarix-edition %s" % " ".join(sys.argv[1:]))
+        sys.exit(1)
+
+
+def cmd_status():
+    as_root()
+    cur, lic = current_edition(), licensed()
+    print("Edition you run now : %s" % NAMES[cur])
+    if not lic:
+        print("Your license        : not found (activate with: sudo soarix-license activate KEY)")
+        return 1
+    print("Your license covers : %s" % ", ".join(NAMES.get(e, e) for e in lic))
+    for ed in ("core", "desktop", "server"):
+        if ed != cur:
+            print("  %-13s %s" % (NAMES[ed], ("can switch: sudo soarix-edition switch " + ed) if ed in lic
+                                  else "not in your license (upgrade with: sudo soarix-edition upgrade KEY)"))
+    return 0
+
+
+def cmd_switch(a):
+    as_root()
+    restart = "--restart" in a
+    a = [x for x in a if x != "--restart"]
+    if not a or a[0] not in NAMES:
+        print("Choose one: core, desktop or server.  Example: sudo soarix-edition switch server")
+        return 2
+    target, cur = a[0], current_edition()
+    if target == cur:
+        print("This computer already runs the %s edition." % NAMES[cur])
+        return 0
+    if target not in licensed():
+        print("Your license does not include the %s edition." % NAMES[target])
+        print("To add it, use a license key that includes it:  sudo soarix-edition upgrade KEY")
+        return 1
+    image = conf_images()[target]
+    print("Switching from the %s edition to the %s edition." % (NAMES[cur], NAMES[target]))
+    print("Downloading %s (this can take several minutes) ..." % NAMES[target])
+    sys.stdout.flush()
+    r = subprocess.run(["bootc", "switch", image])
+    if r.returncode != 0:
+        print()
+        print("The switch did not finish. Check the network connection and try again.")
+        return r.returncode
+    print()
+    print("The %s edition is ready. It starts at the next restart." % NAMES[target])
+    print("To go back: sudo soarix-update rollback  (before you restart), or switch again.")
+    if restart:
+        print("Restarting ...")
+        subprocess.run(["systemctl", "reboot"])
+    return 0
+
+
+def cmd_upgrade(a):
+    as_root()
+    if not a:
+        print("Usage: sudo soarix-edition upgrade KEY")
+        return 2
+    r = subprocess.run(["soarix-license", "activate", a[0], "--edition", current_edition()])
+    if r.returncode != 0:
+        return r.returncode
+    print()
+    return cmd_status()
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    c = a[0]
+    if c == "status":
+        return cmd_status()
+    if c == "switch":
+        return cmd_switch(a[1:])
+    if c == "upgrade":
+        return cmd_upgrade(a[1:])
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

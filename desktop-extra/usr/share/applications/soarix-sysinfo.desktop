@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=System Information
+Comment=About this computer, switch edition, upgrade the license
+Exec=soarix-window sysinfo
+Icon=soarix
+Categories=System;Settings;
+Keywords=about;system;information;hardware;cpu;memory;edition;server;upgrade;license;version;specs;

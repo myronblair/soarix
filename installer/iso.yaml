@@ -2,9 +2,9 @@ label: "Soarix-Installer"
 grub2:
   timeout: 30
   entries:
-    - name: "Install Soarix 0.2.4  (command line)"
+    - name: "Install Soarix 0.3.0  (command line)"
       linux: ${kernelpath} ${root} inst.graphical
       initrd: ${initrdpath}
-    - name: "Install Soarix 0.2.4  with desktop"
+    - name: "Install Soarix 0.3.0  with desktop"
       linux: ${kernelpath} ${root} inst.graphical soarix.desktop=1
       initrd: ${initrdpath}

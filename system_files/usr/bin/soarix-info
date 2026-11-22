@@ -1,0 +1,150 @@
+#!/usr/bin/python3
+"""soarix-info - what this computer is: Soarix version and edition, hardware, network.
+
+  soarix-info          a readable summary
+  soarix-info --json   the same facts for other programs (the System Information window uses it)
+
+No administrator rights needed. For a detailed hardware and driver report run: soarix-hardware
+"""
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+
+EDITIONS = {"core": "Command line", "strip": "Desktop", "server": "Server"}  # VARIANT_ID -> edition name
+
+
+def run(cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def read(p):
+    try:
+        return open(p).read().strip()
+    except OSError:
+        return ""
+
+
+def osrel():
+    d = {}
+    for ln in read("/usr/lib/os-release").splitlines():
+        if "=" in ln:
+            k, v = ln.split("=", 1)
+            d[k] = v.strip('"')
+    return d
+
+
+def gib(n):
+    return "%.1f GB" % (n / 1024 ** 3)
+
+
+def cpu():
+    name, cores = "", 0
+    for ln in read("/proc/cpuinfo").splitlines():
+        if ln.startswith("model name") and not name:
+            name = ln.split(":", 1)[1].strip()
+        if ln.startswith("processor"):
+            cores += 1
+    return re.sub(r"\s+", " ", name) or "unknown", cores
+
+
+def memory():
+    m = {}
+    for ln in read("/proc/meminfo").splitlines():
+        k, _, v = ln.partition(":")
+        m[k] = int(v.split()[0]) * 1024 if v.split() else 0
+    total = m.get("MemTotal", 0)
+    return total, total - m.get("MemAvailable", 0)
+
+
+def graphics():
+    out = []
+    for ln in run(["lspci", "-mm"]).splitlines():
+        if re.search(r'"(VGA compatible controller|3D controller|Display controller)"', ln):
+            parts = re.findall(r'"([^"]*)"', ln)
+            if len(parts) >= 4:
+                out.append("%s %s" % (parts[2], parts[3]))
+    return out
+
+
+def addresses():
+    out = []
+    try:
+        for i in json.loads(run(["ip", "-j", "-4", "addr"]) or "[]"):
+            if i.get("ifname") == "lo":
+                continue
+            for a in i.get("addr_info", []):
+                out.append("%s  %s" % (i["ifname"], a.get("local")))
+    except ValueError:
+        pass
+    return out
+
+
+def uptime():
+    try:
+        s = int(float(read("/proc/uptime").split()[0]))
+    except (ValueError, IndexError):
+        return ""
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m = s // 60
+    return ("%d days " % d if d else "") + ("%d hours " % h if h or d else "") + "%d minutes" % m
+
+
+def facts():
+    rel = osrel()
+    name, cores = cpu()
+    total, used = memory()
+    du = shutil.disk_usage("/var")
+    vendor, product = read("/sys/class/dmi/id/sys_vendor"), read("/sys/class/dmi/id/product_name")
+    virt = run(["systemd-detect-virt"])
+    edition = EDITIONS.get(rel.get("VARIANT_ID", "core"), "Command line")
+    machine = " ".join(x for x in (vendor, product) if x) or "unknown"
+    if virt and virt != "none":
+        machine += "  (virtual machine: %s)" % virt
+    return {
+        "soarix": rel.get("VERSION_ID", "?"),
+        "edition": edition,
+        "build": rel.get("BUILD_ID", ""),
+        "computer_name": socket.gethostname(),
+        "machine": machine,
+        "processor": "%s  (%d %s)" % (name, cores, "core" if cores == 1 else "cores"),
+        "memory": "%s  (%s in use)" % (gib(total), gib(used)),
+        "storage": "%s  (%s used)" % (gib(du.total), gib(du.used)),
+        "graphics": "; ".join(graphics()) or "unknown",
+        "network": addresses(),
+        "kernel": os.uname().release,
+        "uptime": uptime(),
+    }
+
+
+ROWS = [("Soarix", "soarix"), ("Edition", "edition"), ("Build", "build"), ("Computer name", "computer_name"), ("Computer", "machine"),
+        ("Processor", "processor"), ("Memory", "memory"), ("Storage", "storage"), ("Graphics", "graphics"),
+        ("Network", "network"), ("Kernel", "kernel"), ("Running for", "uptime")]
+
+
+def main(a):
+    f = facts()
+    if "--json" in a:
+        print(json.dumps(f))
+        return 0
+    if a and a[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    for label, key in ROWS:
+        v = f.get(key)
+        if isinstance(v, list):
+            v = (", ".join(v)) or "not connected"
+        if v:
+            print("%-15s %s" % (label, v))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
