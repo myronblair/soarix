@@ -1,0 +1,551 @@
+#!/usr/bin/python3
+"""soarix-app - the Soarix Update, License and Essentials windows.
+
+  soarix-app update       look for updates, update Soarix and apps, go back to the previous version
+  soarix-app license      what this computer is licensed for
+  soarix-app essentials   install the recommended everyday apps
+
+Graphical windows in the Soarix style. Anything that needs administrator rights asks for your
+password in a Soarix box (it is used only for that task and is never stored).
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, GLib, Gio, Gtk, Pango  # noqa: E402
+
+APPEARANCE = os.path.expanduser("~/.config/soarix/appearance.json")
+ACCENTS = {"teal": "4fb3c8", "blue": "5b8def", "green": "5fc27a", "yellow": "e0c050", "orange": "e08a3c",
+           "red": "e0605a", "pink": "e07aa8", "purple": "a07be0", "slate": "8ea2c4"}
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+APPS = [
+    ("org.libreoffice.LibreOffice", "LibreOffice", "Word processor, spreadsheets and presentations. Opens Microsoft Office files.", "libreoffice-startcenter"),
+    ("org.mozilla.Thunderbird", "Thunderbird", "Email, calendar and contacts.", "thunderbird"),
+    ("org.videolan.VLC", "VLC", "Plays almost any audio or video file.", "vlc"),
+    ("org.gimp.GIMP", "GIMP", "Photo editing and drawing.", "gimp"),
+    ("com.bitwarden.desktop", "Bitwarden", "Password manager.", "bitwarden"),
+    ("com.usebottles.bottles", "Bottles", "Run Windows programs on Soarix.", "com.usebottles.bottles"),
+    ("com.github.tchx84.Flatseal", "Flatseal", "See and change what each app is allowed to do.", "com.github.tchx84.Flatseal"),
+]
+
+
+def accent():
+    try:
+        n = json.load(open(APPEARANCE)).get("accent", "teal")
+    except (OSError, ValueError):
+        n = "teal"
+    return ACCENTS.get(n, ACCENTS["teal"])
+
+
+def css(acc):
+    return """
+window.soarix, window.soarix-dialog { background: #0b1426; color: #e6edf7; font-family: "Noto Sans", sans-serif; }
+headerbar { background: #0b1426; color: #e6edf7; border: none; border-bottom: 2px solid #c8963e; box-shadow: none; min-height: 44px; }
+headerbar label.title { font-weight: 700; color: #e6edf7; }
+headerbar button { background: transparent; color: #8ea2c4; border: none; box-shadow: none; }
+.card { background: #111d36; border: 1px solid #22304f; border-radius: 14px; padding: 20px; }
+.heading { font-size: 22px; font-weight: 700; color: #ffffff; }
+.sub { color: #8ea2c4; font-size: 14px; }
+.big { font-size: 46px; font-weight: 300; color: #ACC; }
+.label-key { color: #8ea2c4; font-size: 14px; }
+.label-val { color: #ffffff; font-size: 15px; font-weight: 600; }
+.status { color: #c9d4e8; font-size: 15px; }
+.good { color: #5fc27a; font-weight: 700; }
+.warn { color: #ffb84d; font-weight: 700; }
+.bad { color: #e0605a; font-weight: 700; }
+button { border-radius: 10px; padding: 10px 20px; font-weight: 600; box-shadow: none; background-image: none; border: 1px solid #2f4268; background-color: #1b2a4a; color: #e6edf7; }
+button:hover { background-color: #25375e; }
+button:disabled { opacity: 0.45; }
+button.primary { background-color: #c8963e; color: #0b1426; border: none; }
+button.primary:hover { background-color: #e0b25a; }
+button.accent { background-color: #ACC; color: #0b1426; border: none; }
+progressbar trough { background-color: #1b2a4a; min-height: 8px; border-radius: 4px; border: none; }
+progressbar progress { background-color: #ACC; min-height: 8px; border-radius: 4px; border: none; }
+textview.log, textview.log text { background-color: #08101f; color: #9fb3d1; font-family: monospace; font-size: 12px; }
+scrolledwindow.logbox { border: 1px solid #22304f; border-radius: 10px; }
+.banner { background-color: rgba(200,150,62,0.16); border: 1px solid #c8963e; border-radius: 12px; padding: 14px 18px; }
+entry, passwordentry text, passwordentry { background-color: #08101f; color: #e6edf7; border: 1px solid #2f4268; border-radius: 8px; padding: 6px 10px; min-height: 28px; }
+check { background-color: #1b2a4a; border: 1px solid #3a4f7a; border-radius: 6px; min-width: 20px; min-height: 20px; }
+check:checked { background-color: #ACC; border-color: #ACC; color: #0b1426; }
+.approw { background: #0f1930; border: 1px solid #1d2b49; border-radius: 12px; padding: 12px 14px; }
+.approw:hover { border-color: #3a4f7a; }
+.tag { background: rgba(95,194,122,0.16); color: #5fc27a; border-radius: 8px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+expander title { color: #8ea2c4; }
+""".replace("#ACC", "#" + acc)
+
+
+def os_release():
+    d = {}
+    try:
+        for ln in open("/usr/lib/os-release"):
+            if "=" in ln:
+                k, v = ln.rstrip().split("=", 1)
+                d[k] = v.strip('"')
+    except OSError:
+        pass
+    return d
+
+
+def mk(widget, *classes):
+    for c in classes:
+        widget.add_css_class(c)
+    return widget
+
+
+def label(text, *classes, xalign=0.0, wrap=False):
+    lb = Gtk.Label(label=text, xalign=xalign)
+    lb.set_wrap(wrap)
+    if wrap:
+        lb.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    return mk(lb, *classes)
+
+
+class Runner:
+    """Runs a command in the background (with administrator rights when asked) and streams its output."""
+
+    def __init__(self, win):
+        self.win = win
+
+    def run(self, cmd, on_line, on_done, admin=False, password=None):
+        def work():
+            full = (["sudo", "-S", "-p", ""] + cmd) if admin else cmd
+            try:
+                p = subprocess.Popen(full, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     env=dict(os.environ, LC_ALL="C.UTF-8", TERM="dumb"))
+            except OSError as e:
+                GLib.idle_add(on_done, 127, str(e))
+                return
+            try:
+                if admin:
+                    p.stdin.write(((password or "") + "\n").encode())
+                p.stdin.close()
+            except OSError:
+                pass
+            buf = ""
+            while True:
+                chunk = os.read(p.stdout.fileno(), 4096)
+                if not chunk:
+                    break
+                buf += ANSI.sub("", chunk.decode("utf-8", "replace"))
+                parts = re.split(r"[\r\n]", buf)
+                buf = parts.pop()
+                for ln in parts:
+                    if ln.strip():
+                        GLib.idle_add(on_line, ln.rstrip(), False)
+                if buf.strip():
+                    GLib.idle_add(on_line, buf.strip(), True)
+            rc = p.wait()
+            GLib.idle_add(on_done, rc, "")
+        threading.Thread(target=work, daemon=True).start()
+
+
+class PasswordBox(Gtk.Window):
+    """A Soarix-style box that asks for the password of the signed-in user."""
+
+    def __init__(self, parent, why, on_ok):
+        super().__init__(transient_for=parent, modal=True, title="Administrator password")
+        mk(self, "soarix-dialog")
+        self.on_ok = on_ok
+        self.set_default_size(420, -1)
+        self.set_resizable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + m)(24)
+        box.append(label("Password needed", "heading"))
+        box.append(label(why, "sub", wrap=True))
+        self.entry = Gtk.PasswordEntry(show_peek_icon=True)
+        self.entry.connect("activate", self.go)
+        box.append(self.entry)
+        self.msg = label("", "bad")
+        box.append(self.msg)
+        row = Gtk.Box(spacing=10, halign=Gtk.Align.END)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda *_: self.close())
+        self.ok = mk(Gtk.Button(label="Continue"), "primary")
+        self.ok.connect("clicked", self.go)
+        row.append(cancel)
+        row.append(self.ok)
+        box.append(row)
+        self.set_child(box)
+        self.entry.grab_focus()
+
+    def go(self, *_):
+        pw = self.entry.get_text()
+        if not pw:
+            return
+        self.ok.set_sensitive(False)
+        self.msg.set_text("Checking ...")
+
+        def check():
+            try:
+                p = subprocess.run(["sudo", "-S", "-p", "", "-v"], input=(pw + "\n").encode(), capture_output=True, timeout=30)
+                good = p.returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                good = False
+            GLib.idle_add(self.done, good, pw)
+        threading.Thread(target=check, daemon=True).start()
+
+    def done(self, good, pw):
+        if good:
+            self.close()
+            self.on_ok(pw)
+        else:
+            self.ok.set_sensitive(True)
+            self.msg.set_text("That password did not work. Try again.")
+            self.entry.set_text("")
+            self.entry.grab_focus()
+
+
+class Page(Gtk.ApplicationWindow):
+    TITLE = "Soarix"
+    SIZE = (780, 640)
+
+    def __init__(self, app):
+        super().__init__(application=app, title=self.TITLE)
+        mk(self, "soarix")
+        self.set_default_size(*self.SIZE)
+        self.password = None
+        self.runner = Runner(self)
+        hb = Gtk.HeaderBar()
+        self.set_titlebar(hb)
+        self.root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(self.root, "set_margin_" + m)(22)
+        self.set_child(self.root)
+        self.connect("close-request", self.on_close)
+
+    def on_close(self, *_):
+        self.password = None
+        return False
+
+    def head(self, title, sub):
+        row = Gtk.Box(spacing=16)
+        img = Gtk.Image.new_from_icon_name("soarix")
+        img.set_pixel_size(56)
+        row.append(img)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.CENTER)
+        col.append(label(title, "heading"))
+        col.append(label(sub, "sub", wrap=True))
+        row.append(col)
+        self.root.append(row)
+
+    def need_password(self, why, then):
+        if self.password is not None:
+            then()
+            return
+
+        def ok(pw):
+            self.password = pw
+            then()
+        PasswordBox(self, why, ok).present()
+
+    def log_area(self, height=190):
+        """A details area (collapsed) with the raw output, a progress bar, and a one-line status."""
+        self.status = label("", "status", wrap=True)
+        self.progress = Gtk.ProgressBar()
+        self.progress.set_visible(False)
+        self.view = mk(Gtk.TextView(editable=False, cursor_visible=False, monospace=True), "log")
+        self.view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.view.set_left_margin(10)
+        self.view.set_right_margin(10)
+        sw = mk(Gtk.ScrolledWindow(), "logbox")
+        sw.set_min_content_height(height)
+        sw.set_child(self.view)
+        self.details = Gtk.Expander(label="Show details")
+        self.details.set_child(sw)
+        self.details.set_visible(False)
+        self.pulse_id = None
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.append(self.status)
+        box.append(self.progress)
+        box.append(self.details)
+        return box
+
+    def log_clear(self):
+        self.view.get_buffer().set_text("")
+
+    def log_add(self, text):
+        b = self.view.get_buffer()
+        b.insert(b.get_end_iter(), text + "\n")
+        GLib.idle_add(lambda: self.view.scroll_to_iter(b.get_end_iter(), 0, False, 0, 0) and False)
+
+    def busy(self, on, text=None):
+        self.progress.set_visible(on)
+        if on:
+            self.details.set_visible(True)
+            if self.pulse_id is None:
+                self.pulse_id = GLib.timeout_add(120, self._pulse)
+        elif self.pulse_id is not None:
+            GLib.source_remove(self.pulse_id)
+            self.pulse_id = None
+        if text is not None:
+            self.status.set_text(text)
+
+    def _pulse(self):
+        self.progress.pulse()
+        return True
+
+
+class UpdatePage(Page):
+    TITLE = "Soarix Update"
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Soarix Update", "Keep Soarix and your apps up to date.")
+        rel = os_release()
+        card = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6), "card")
+        card.append(label("You are running", "sub"))
+        card.append(label("Soarix " + rel.get("VERSION_ID", "?"), "big"))
+        card.append(label("%s edition%s" % (rel.get("VARIANT", "Soarix"), ("   build " + rel["BUILD_ID"]) if rel.get("BUILD_ID") else ""), "sub"))
+        self.root.append(card)
+        self.state = self.log_area()
+        self.root.append(self.state)
+        self.banner = mk(Gtk.Box(spacing=14), "banner")
+        self.banner.append(label("An update is ready. Restart to finish installing it.", "status", wrap=True))
+        self.banner.get_first_child().set_hexpand(True)
+        rb = mk(Gtk.Button(label="Restart now"), "primary")
+        rb.connect("clicked", lambda *_: self.admin(["systemctl", "reboot"], "Restart this computer.", None, "Restarting ..."))
+        self.banner.append(rb)
+        self.banner.set_visible(False)
+        self.root.append(self.banner)
+        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        top = Gtk.Box(spacing=10)
+        self.btns = []
+        for text, cls, cmd, why, busy in [
+            ("Check for updates", "accent", ["soarix-update", "status"], "Soarix needs your password to look for updates.", "Checking for updates ..."),
+            ("Update everything", "primary", ["soarix-update", "all"], "Soarix needs your password to install updates.", "Updating Soarix and your apps ..."),
+        ]:
+            b = mk(Gtk.Button(label=text), cls)
+            b.connect("clicked", lambda _b, c=cmd, w=why, t=busy: self.admin(c, w, self.after, t))
+            top.append(b)
+            self.btns.append(b)
+        actions.append(top)
+        bottom = Gtk.Box(spacing=10)
+        for text, cmd, why, busy in [
+            ("Update apps only", ["soarix-update", "apps"], "Soarix needs your password to update apps.", "Updating your apps ..."),
+            ("Update Soarix only", ["soarix-update", "os"], "Soarix needs your password to install the update.", "Updating Soarix ..."),
+            ("Go back to the previous version", ["soarix-update", "rollback"], "Soarix needs your password to go back to the previous version.", "Going back ..."),
+        ]:
+            b = Gtk.Button(label=text)
+            b.connect("clicked", lambda _b, c=cmd, w=why, t=busy: self.admin(c, w, self.after, t))
+            bottom.append(b)
+            self.btns.append(b)
+        actions.append(bottom)
+        self.root.append(actions)
+
+    def admin(self, cmd, why, done, busy_text):
+        def go():
+            self.log_clear()
+            self.banner.set_visible(False)
+            for b in self.btns:
+                b.set_sensitive(False)
+            self.busy(True, busy_text)
+            self.seen = []
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+                    self.seen.append(ln)
+                self.status.set_text(ln[:140])
+
+            def on_done(rc, err):
+                self.busy(False)
+                for b in self.btns:
+                    b.set_sensitive(True)
+                if done:
+                    done(rc)
+            self.runner.run(cmd, on_line, on_done, admin=True, password=self.password)
+        self.need_password(why, go)
+
+    def after(self, rc):
+        text = "\n".join(self.seen)
+        if "after the next restart" in text or "will start at the next restart" in text or "at next restart" in text.lower():
+            self.banner.set_visible(True)
+            self.status.set_text("Update downloaded. Restart to finish.")
+            return
+        if rc != 0:
+            self.status.set_text("That did not finish (see the details). Check your network and try again.")
+            return
+        if "up to date" in text.lower() or "already on the newest" in text.lower():
+            self.status.set_text("Everything is up to date.")
+        elif "update is available" in text.lower() or "Update available" in text:
+            self.status.set_text("An update is available. Choose Update everything.")
+        else:
+            self.status.set_text("Done.")
+
+
+class LicensePage(Page):
+    TITLE = "Soarix License"
+    SIZE = (640, 520)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Soarix License", "What this computer is licensed for.")
+        self.card = mk(Gtk.Grid(row_spacing=10, column_spacing=24), "card")
+        self.root.append(self.card)
+        self.state = self.log_area(120)
+        self.root.append(self.state)
+        row = Gtk.Box(spacing=10)
+        self.btn_show = mk(Gtk.Button(label="Show my license"), "accent")
+        self.btn_show.connect("clicked", lambda *_: self.fetch("status"))
+        self.btn_check = Gtk.Button(label="Check it with the license server")
+        self.btn_check.connect("clicked", lambda *_: self.fetch("check"))
+        row.append(self.btn_show)
+        row.append(self.btn_check)
+        self.root.append(row)
+        self.status.set_text("Press Show my license. Soarix will ask for your password.")
+
+    def fetch(self, what):
+        def go():
+            self.log_clear()
+            self.btn_show.set_sensitive(False)
+            self.btn_check.set_sensitive(False)
+            self.busy(True, "Reading the license ...")
+            self.lines = []
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.lines.append(ln)
+                    self.log_add(ln)
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.btn_show.set_sensitive(True)
+                self.btn_check.set_sensitive(True)
+                self.render(what, rc)
+            self.runner.run(["soarix-license", what], on_line, on_done, admin=True, password=self.password)
+        self.need_password("Soarix needs your password to read the license.", go)
+
+    def render(self, what, rc):
+        c = self.card
+        while c.get_first_child():
+            c.remove(c.get_first_child())
+        rows = []
+        for ln in self.lines:
+            if ":" in ln:
+                k, v = ln.split(":", 1)
+                rows.append((k.strip(), v.strip()))
+        if what == "status" and rows:
+            for i, (k, v) in enumerate(rows):
+                c.attach(label(k, "label-key"), 0, i, 1, 1)
+                cls = ["label-val"]
+                if k.lower() == "status":
+                    cls.append("good" if v.lower() == "active" else "warn")
+                c.attach(label(v, *cls), 1, i, 1, 1)
+            self.status.set_text("")
+        else:
+            msg = " ".join(self.lines) or "No answer from the license tool."
+            c.attach(label(msg, "label-val", wrap=True), 0, 0, 1, 1)
+            self.status.set_text("")
+
+
+class EssentialsPage(Page):
+    TITLE = "Soarix Essentials"
+    SIZE = (760, 760)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.head("Soarix Essentials", "Recommended everyday apps from Flathub. About 2 GB in total.")
+        self.checks = {}
+        sw = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        installed = self.installed_apps()
+        for aid, name, desc, _ in APPS:
+            row = mk(Gtk.Box(spacing=14), "approw")
+            cb = Gtk.CheckButton()
+            cb.set_active(aid not in installed)
+            cb.set_sensitive(aid not in installed)
+            self.checks[aid] = cb
+            row.append(cb)
+            txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            txt.append(label(name, "label-val"))
+            txt.append(label(desc, "sub", wrap=True))
+            row.append(txt)
+            if aid in installed:
+                row.append(mk(Gtk.Label(label="Installed", valign=Gtk.Align.CENTER), "tag"))
+            col.append(row)
+        sw.set_child(col)
+        self.root.append(sw)
+        self.state = self.log_area(110)
+        self.root.append(self.state)
+        row = Gtk.Box(spacing=10)
+        self.go_btn = mk(Gtk.Button(label="Install the selected apps"), "primary")
+        self.go_btn.connect("clicked", lambda *_: self.install())
+        self.all_btn = Gtk.Button(label="Select all")
+        self.all_btn.connect("clicked", lambda *_: [cb.set_active(True) for a, cb in self.checks.items() if cb.get_sensitive()])
+        row.append(self.go_btn)
+        row.append(self.all_btn)
+        self.root.append(row)
+        if not any(cb.get_sensitive() for cb in self.checks.values()):
+            self.status.set_text("All the recommended apps are already installed.")
+            self.go_btn.set_sensitive(False)
+
+    def installed_apps(self):
+        try:
+            r = subprocess.run(["flatpak", "list", "--app", "--columns=application"], capture_output=True, text=True, timeout=30)
+            return set(r.stdout.split())
+        except (OSError, subprocess.TimeoutExpired):
+            return set()
+
+    def install(self):
+        ids = [a for a, cb in self.checks.items() if cb.get_active() and cb.get_sensitive()]
+        if not ids:
+            self.status.set_text("Nothing selected.")
+            return
+
+        def go():
+            self.log_clear()
+            self.go_btn.set_sensitive(False)
+            self.busy(True, "Installing %d app%s. This can take a while ..." % (len(ids), "" if len(ids) == 1 else "s"))
+
+            def on_line(ln, partial):
+                if not partial:
+                    self.log_add(ln)
+                self.status.set_text(ln[:140])
+
+            def on_done(rc, err):
+                self.busy(False)
+                self.go_btn.set_sensitive(True)
+                if rc == 0:
+                    self.status.set_text("Done. The new apps are in the Apps drawer.")
+                    for a in ids:
+                        self.checks[a].set_sensitive(False)
+                        self.checks[a].set_active(False)
+                    self.go_btn.set_sensitive(False)
+                else:
+                    self.status.set_text("Something did not install. Check your network and try again.")
+            self.runner.run(["flatpak", "install", "-y", "--noninteractive", "flathub"] + ids, on_line, on_done,
+                            admin=True, password=self.password)
+        self.need_password("Soarix needs your password to install apps.", go)
+
+
+PAGES = {"update": UpdatePage, "license": LicensePage, "essentials": EssentialsPage}
+
+
+def main():
+    page = sys.argv[1] if len(sys.argv) > 1 else ""
+    if page not in PAGES:
+        print(__doc__)
+        return 2
+    app = Gtk.Application(application_id="com.soarix.%s" % page, flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def activate(a):
+        prov = Gtk.CssProvider()
+        prov.load_from_string(css(accent()))
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", True)
+        PAGES[page](a).present()
+    app.connect("activate", activate)
+    return app.run([sys.argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main())
