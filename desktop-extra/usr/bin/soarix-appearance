@@ -290,11 +290,16 @@ def float_daemon():
         seen = set()
         try:
             p = subprocess.Popen(["niri", "msg", "--json", "event-stream"], stdout=subprocess.PIPE, text=True)
-            for line in p.stdout:
-                if windows_mode(load()) != "floating":
-                    p.terminate()
-                    return 0
-                handle_event(line, seen, lambda i: niri("action", "move-window-to-floating", "--id", str(i)))
+            checked, still = -10.0, True
+            try:
+                for line in p.stdout:
+                    if time.monotonic() - checked > 5:  # look at the setting every few seconds, not on every event
+                        checked, still = time.monotonic(), windows_mode(load()) == "floating"
+                    if not still:
+                        return 0
+                    handle_event(line, seen, lambda i: niri("action", "move-window-to-floating", "--id", str(i)))
+            finally:
+                p.terminate()
         except OSError:
             pass
         time.sleep(2)

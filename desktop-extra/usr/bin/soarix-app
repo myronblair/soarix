@@ -130,6 +130,15 @@ def os_release():
     return d
 
 
+def clear(box):
+    """Remove everything from a container."""
+    while True:
+        child = box.get_first_child()
+        if child is None:
+            return
+        box.remove(child)
+
+
 def mk(widget, *classes):
     for c in classes:
         widget.add_css_class(c)
@@ -259,6 +268,7 @@ class Page(Gtk.ApplicationWindow):
         mk(self, "soarix")
         self.set_default_size(*self.SIZE)
         self.password = None
+        self.alive = True
         self.runner = Runner(self)
         hb = Gtk.HeaderBar()
         self.set_titlebar(hb)
@@ -270,6 +280,10 @@ class Page(Gtk.ApplicationWindow):
 
     def on_close(self, *_):
         self.password = None
+        self.alive = False
+        if getattr(self, "pulse_id", None) is not None:
+            GLib.source_remove(self.pulse_id)
+            self.pulse_id = None
         return False
 
     def head(self, title, sub):
@@ -481,8 +495,7 @@ class LicensePage(Page):
     def render(self, what, rc):
         c = self.card
         c.set_visible(True)
-        while c.get_first_child():
-            c.remove(c.get_first_child())
+        clear(c)
         rows = []
         for ln in self.lines:
             if ":" in ln:
@@ -681,6 +694,8 @@ class DateTimePage(Page):
         return "%H:%M:%S" if self.sw24.get_active() else "%-I:%M:%S %p"
 
     def tick(self):
+        if not self.alive:
+            return False
         t = time.localtime()
         self.clock.set_text(time.strftime(self.fmt(), t))
         self.day.set_text(time.strftime("%A, %B %-d, %Y", t) + "   " + (time.tzname[t.tm_isdst > 0] if time.tzname else ""))
@@ -1060,12 +1075,7 @@ class ServicesPage(Page):
                 self.status.set_text(done if rc == 0 else "That did not finish (see the details).")
             self.runner.run(["sh", "-c", cmd], on_line, on_done, admin=True, password=self.password)
 
-        def cancelled_check():
-            go()
-        if self.password is None:
-            self.need_password("Soarix needs your password to change a server service.", cancelled_check)
-        else:
-            go()
+        self.need_password("Soarix needs your password to change a server service.", go)
 
 
 CHECKS = {
@@ -1626,8 +1636,7 @@ class NetworkPage(Page):
 
     def load_all(self):
         c = self.conns
-        while c.get_first_child():
-            c.remove(c.get_first_child())
+        clear(c)
         i = 0
         for ln in out_of(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"]).splitlines():
             dev, typ, st, con = (nm_fields(ln) + ["", "", "", ""])[:4]
@@ -1657,8 +1666,7 @@ class NetworkPage(Page):
 
     def scan_wifi(self, rescan):
         box = self.wifi_list
-        while box.get_first_child():
-            box.remove(box.get_first_child())
+        clear(box)
         seen = set()
         lines = out_of(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes" if rescan else "auto"], 40).splitlines()
         for ln in lines:
@@ -1760,8 +1768,7 @@ class PrintersPage(Page):
 
     def load(self):
         box = self.listbox
-        while box.get_first_child():
-            box.remove(box.get_first_child())
+        clear(box)
         txt = out_of(["lpstat", "-p", "-d", "-v"])
         if not txt.strip():
             msg = mk(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), "card")
@@ -1859,8 +1866,7 @@ class PrintersPage(Page):
             return
         self.status.set_text("Found %d. Press Add next to the one you want." % len(uris))
         box = self.listbox
-        while box.get_first_child():
-            box.remove(box.get_first_child())
+        clear(box)
         for u in uris:
             r = mk(Gtk.Box(spacing=12), "approw")
             r.append(label(u, "label-val", wrap=True))
@@ -1972,8 +1978,7 @@ class DevicesPage(Page):
             if m and cur:
                 cur["mac"], cur["vendor"] = m.group(1), m.group(2) or ""
         box = self.results
-        while box.get_first_child():
-            box.remove(box.get_first_child())
+        clear(box)
         for d in devs:
             r = mk(Gtk.Box(spacing=14), "approw")
             t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
@@ -2021,9 +2026,8 @@ class UsersPage(Page):
         self.full = Gtk.Entry(placeholder_text="Full name", hexpand=True)
         self.user = Gtk.Entry(placeholder_text="Username (lowercase letters and numbers)", hexpand=True)
         self.pw = Gtk.PasswordEntry(show_peek_icon=True, hexpand=True)
-        self.pw.set_property("placeholder-text", "Password (at least 8 characters)") if hasattr(self.pw.props, "placeholder_text") else None
         self.adm = Gtk.CheckButton(label="Administrator (can install and change the system)")
-        for i, (t, w) in enumerate((("Full name", self.full), ("Username", self.user), ("Password", self.pw))):
+        for i, (t, w) in enumerate((("Full name", self.full), ("Username", self.user), ("Password (8+ characters)", self.pw))):
             g.attach(label(t, "label-key"), 0, i, 1, 1)
             g.attach(w, 1, i, 1, 1)
         g.attach(self.adm, 1, 3, 1, 1)
@@ -2051,8 +2055,7 @@ class UsersPage(Page):
 
     def load(self):
         b = self.box
-        while b.get_first_child():
-            b.remove(b.get_first_child())
+        clear(b)
         for u in self.people():
             r = mk(Gtk.Box(spacing=12), "approw")
             t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
@@ -2198,8 +2201,7 @@ class AddonsPage(Page):
 
     def load(self):
         b = self.box
-        while b.get_first_child():
-            b.remove(b.get_first_child())
+        clear(b)
         rows = cli_json("soarix-addon", "list", "--json")
         rows = rows if isinstance(rows, list) else []
         for a in rows:
