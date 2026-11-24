@@ -16,7 +16,7 @@ RUN dnf5 -y install \
 
 ARG SOARIX_VERSION=0.3.4
 RUN printf '%s\n' 'NAME="Soarix"' "PRETTY_NAME=\"Soarix ${SOARIX_VERSION}\"" 'ID=soarix' 'ID_LIKE="fedora"' \
-    "VERSION=\"${SOARIX_VERSION}\"" "VERSION_ID=\"${SOARIX_VERSION}\"" 'VARIANT_ID=installer' 'HOME_URL="https://getsoarix.com"' \
+    "VERSION=\"${SOARIX_VERSION}\"" "VERSION_ID=\"${SOARIX_VERSION%.*}\"" 'VARIANT_ID=installer' 'HOME_URL="https://getsoarix.com"' \
     > /usr/lib/os-release && ln -sf ../usr/lib/os-release /etc/os-release
 
 # Product identity the installer reads (this is what the title bar says)
