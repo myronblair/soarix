@@ -6,6 +6,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# A wrong clock makes security certificates look invalid, so set it before downloading anything.
+ExecStartPre=-/usr/bin/chronyc -a makestep
+# Show what is happening on the screen too: the download takes minutes and the screen would otherwise be blank.
+StandardOutput=journal+console
+StandardError=journal+console
 ExecStart=/usr/libexec/soarix-firstboot-desktop
 TimeoutStartSec=infinity
 

@@ -57,3 +57,9 @@ if [ -d "$d/usr" ] && command -v rpm >/dev/null; then
   rpm --dbpath "$db" -qa --qf '  %{NAME} %{VERSION}\n' 2>/dev/null | sort | tee /dev/stderr
 fi
 %end
+
+# Write the hardware clock so the new system does not start with a slow clock.
+%post --nochroot --log=/tmp/soarix-clock.log
+hwclock --systohc 2>&1 || true
+echo "soarix: hardware clock set to $(date)"
+%end
