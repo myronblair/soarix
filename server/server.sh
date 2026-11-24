@@ -41,6 +41,10 @@ dnf5 -y install --skip-unavailable --exclude=pax \
 for f in /etc/clamd.d/scan.conf /etc/freshclam.conf; do
     [ -f "$f" ] && sed -i 's/^Example/#Example/' "$f" || true
 done
+# The default web page (shared by Apache and nginx) comes from a Fedora package and says so.
+# Put the Soarix page over it now that every web package is installed, so nothing can bring the old one back.
+install -D -m 0644 /ctx/usr/share/testpage/index.html /usr/share/testpage/index.html
+
 # Scheduled jobs are needed by most hosting panels
 systemctl enable crond.service 2>/dev/null || true
 

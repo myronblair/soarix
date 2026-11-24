@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Soarix Web Server</title>
+<style>
+  :root { --bg:#0b1220; --card:#121b2e; --line:#1f2c46; --text:#e8edf5; --dim:#8da0bd; --mint:#2bd9b4; --sky:#4aa8ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:48px 20px 64px; }
+  header { display:flex; align-items:center; gap:16px; margin-bottom:28px; }
+  header img { width:56px; height:56px; border-radius:14px; }
+  h1 { margin:0; font-size:28px; font-weight:600; letter-spacing:-.01em; }
+  h1 span { color:var(--mint); }
+  .lead { color:var(--dim); margin:4px 0 0; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; margin:16px 0; }
+  h2 { margin:0 0 8px; font-size:15px; text-transform:uppercase; letter-spacing:.08em; color:var(--sky); }
+  p { margin:8px 0; }
+  code { background:#0b1220; border:1px solid var(--line); border-radius:6px; padding:1px 7px; color:var(--mint); font-size:14px; }
+  ul { margin:8px 0; padding-left:20px; }
+  li { margin:6px 0; }
+  footer { margin-top:28px; color:var(--dim); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img alt="Soarix" src="data:image/png;base64,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">
+    <div>
+      <h1>Soarix <span>Web Server</span></h1>
+      <p class="lead">The web server is running. No website has been set up here yet.</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>If you are visiting this site</h2>
+    <p>The website you just visited is having problems, or is being set up. Please try again later.</p>
+    <p>To let the administrators know you saw this page and not what you expected, an e-mail to <code>webmaster</code> at the site's domain should reach the right person. For example, if you saw this page while visiting <code>www.example.com</code>, you could write to <code>webmaster@example.com</code>.</p>
+  </section>
+
+  <section>
+    <h2>If you are the website administrator</h2>
+    <p>Add your website's files and this page goes away. Until you do, visitors see this page and not your content.</p>
+    <ul>
+      <li><strong>Apache:</strong> put your files in <code>/var/www/html/</code>. To stop this page from ever showing, follow the notes in <code>/etc/httpd/conf.d/welcome.conf</code>.</li>
+      <li><strong>nginx:</strong> put your files in a location of your choice and set the <code>root</code> line in <code>/etc/nginx/nginx.conf</code>. (This page is served from <code>/usr/share/nginx/html/</code>.)</li>
+    </ul>
+    <p>Turn services on and off with <code>soarix-server</code>, or the Server Services window.</p>
+  </section>
+
+  <footer>
+    Apache is a registered trademark of the Apache Software Foundation in the United States and/or other countries.
+    NGINX is a registered trademark of F5, Inc.
+  </footer>
+</main>
+</body>
+</html>
